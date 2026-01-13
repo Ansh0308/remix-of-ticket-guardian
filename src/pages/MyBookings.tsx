@@ -1,18 +1,39 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, Clock, Ticket, Zap } from 'lucide-react';
+import { Calendar, MapPin, Ticket, Zap, Trash2 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import StatusBadge from '@/components/events/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { getAutoBooksByUserId } from '@/data/mockData';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useAutoBooks, useCancelAutoBook } from '@/hooks/useAutoBooks';
 import { useAuth } from '@/context/AuthContext';
 import { AutoBook } from '@/types';
+import { toast } from '@/hooks/use-toast';
 
 const MyBookings: React.FC = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState('active');
+
+  const { data: allBookings = [], isLoading: bookingsLoading } = useAutoBooks();
+  const cancelAutoBook = useCancelAutoBook();
+
+  if (authLoading) {
+    return (
+      <PageLayout>
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <Skeleton className="h-12 w-48 mb-8" />
+          <Skeleton className="h-12 w-full mb-6" />
+          <div className="space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <Skeleton key={i} className="h-40 w-full rounded-2xl" />
+            ))}
+          </div>
+        </div>
+      </PageLayout>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
@@ -34,8 +55,6 @@ const MyBookings: React.FC = () => {
       </PageLayout>
     );
   }
-
-  const allBookings = getAutoBooksByUserId(user?.id || 'user1');
   
   const activeBookings = allBookings.filter(b => b.status === 'active');
   const successfulBookings = allBookings.filter(b => b.status === 'success');
@@ -56,73 +75,106 @@ const MyBookings: React.FC = () => {
     });
   };
 
-  const BookingCard: React.FC<{ booking: AutoBook; index: number }> = ({ booking, index }) => (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.1 }}
-      className="premium-card p-6"
-    >
-      <div className="flex flex-col sm:flex-row gap-4">
-        {/* Event Image */}
-        {booking.event && (
-          <img
-            src={booking.event.image}
-            alt={booking.event.name}
-            className="w-full sm:w-24 h-32 sm:h-24 rounded-lg object-cover"
-          />
-        )}
+  const seatLabels = { general: 'General', premium: 'Premium', vip: 'VIP' };
 
-        {/* Booking Details */}
-        <div className="flex-1 space-y-3">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="font-semibold text-foreground text-lg">
-                {booking.event?.name || 'Unknown Event'}
-              </h3>
-              <div className="flex items-center gap-2 mt-1">
-                <StatusBadge status={booking.status} size="sm" />
-              </div>
-            </div>
-          </div>
+  const handleCancel = async (bookingId: string) => {
+    try {
+      await cancelAutoBook.mutateAsync(bookingId);
+      toast({
+        title: "Auto-book cancelled",
+        description: "Your auto-book request has been cancelled.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to cancel auto-book",
+        variant: "destructive",
+      });
+    }
+  };
 
+  const BookingCard: React.FC<{ booking: AutoBook; index: number }> = ({ booking, index }) => {
+    const eventImage = booking.event?.image_url || `https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800&q=80`;
+
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: index * 0.1 }}
+        className="premium-card p-6"
+      >
+        <div className="flex flex-col sm:flex-row gap-4">
+          {/* Event Image */}
           {booking.event && (
-            <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-              <div className="flex items-center gap-1">
-                <Calendar className="w-4 h-4" />
-                {formatDate(booking.event.date)}
-              </div>
-              <div className="flex items-center gap-1">
-                <MapPin className="w-4 h-4" />
-                {booking.event.city}
-              </div>
-            </div>
+            <img
+              src={eventImage}
+              alt={booking.event.name}
+              className="w-full sm:w-24 h-32 sm:h-24 rounded-lg object-cover"
+            />
           )}
 
-          <div className="flex flex-wrap gap-4 pt-2 border-t border-border">
-            <div>
-              <p className="text-xs text-muted-foreground">Seat Type</p>
-              <p className="font-medium text-foreground">{booking.seatType}</p>
+          {/* Booking Details */}
+          <div className="flex-1 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-semibold text-foreground text-lg">
+                  {booking.event?.name || 'Unknown Event'}
+                </h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <StatusBadge status={booking.status} size="sm" />
+                </div>
+              </div>
+              {booking.status === 'active' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleCancel(booking.id)}
+                  disabled={cancelAutoBook.isPending}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Quantity</p>
-              <p className="font-medium text-foreground">{booking.quantity} tickets</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Max Budget</p>
-              <p className="font-medium text-foreground">₹{booking.maxBudget.toLocaleString()}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Created</p>
-              <p className="font-medium text-foreground">
-                {formatDate(booking.createdAt)} at {formatTime(booking.createdAt)}
-              </p>
+
+            {booking.event && (
+              <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                <div className="flex items-center gap-1">
+                  <Calendar className="w-4 h-4" />
+                  {formatDate(booking.event.date)}
+                </div>
+                <div className="flex items-center gap-1">
+                  <MapPin className="w-4 h-4" />
+                  {booking.event.city}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-4 pt-2 border-t border-border">
+              <div>
+                <p className="text-xs text-muted-foreground">Seat Type</p>
+                <p className="font-medium text-foreground">{seatLabels[booking.seat_type]}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Quantity</p>
+                <p className="font-medium text-foreground">{booking.quantity} tickets</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Max Budget</p>
+                <p className="font-medium text-foreground">₹{Number(booking.max_budget).toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Created</p>
+                <p className="font-medium text-foreground">
+                  {formatDate(booking.created_at)} at {formatTime(booking.created_at)}
+                </p>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </motion.div>
-  );
+      </motion.div>
+    );
+  };
 
   const EmptyState: React.FC<{ type: string }> = ({ type }) => (
     <motion.div
@@ -169,74 +221,82 @@ const MyBookings: React.FC = () => {
           </p>
         </motion.div>
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 bg-secondary p-1 rounded-xl">
-            <TabsTrigger 
-              value="active" 
-              className="rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm"
-            >
-              Active
-              {activeBookings.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-primary text-primary-foreground">
-                  {activeBookings.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger 
-              value="successful"
-              className="rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm"
-            >
-              Successful
-              {successfulBookings.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-success text-success-foreground">
-                  {successfulBookings.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger 
-              value="failed"
-              className="rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm"
-            >
-              Failed
-              {failedBookings.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-destructive text-destructive-foreground">
-                  {failedBookings.length}
-                </span>
-              )}
-            </TabsTrigger>
-          </TabsList>
+        {bookingsLoading ? (
+          <div className="space-y-4">
+            <Skeleton className="h-12 w-full" />
+            {[...Array(3)].map((_, i) => (
+              <Skeleton key={i} className="h-40 w-full rounded-2xl" />
+            ))}
+          </div>
+        ) : (
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+            <TabsList className="grid w-full grid-cols-3 bg-secondary p-1 rounded-xl">
+              <TabsTrigger 
+                value="active" 
+                className="rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm"
+              >
+                Active
+                {activeBookings.length > 0 && (
+                  <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-primary text-primary-foreground">
+                    {activeBookings.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger 
+                value="successful"
+                className="rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm"
+              >
+                Successful
+                {successfulBookings.length > 0 && (
+                  <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-success text-success-foreground">
+                    {successfulBookings.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger 
+                value="failed"
+                className="rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm"
+              >
+                Failed
+                {failedBookings.length > 0 && (
+                  <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-destructive text-destructive-foreground">
+                    {failedBookings.length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="active" className="space-y-4">
-            {activeBookings.length > 0 ? (
-              activeBookings.map((booking, index) => (
-                <BookingCard key={booking.id} booking={booking} index={index} />
-              ))
-            ) : (
-              <EmptyState type="active" />
-            )}
-          </TabsContent>
+            <TabsContent value="active" className="space-y-4">
+              {activeBookings.length > 0 ? (
+                activeBookings.map((booking, index) => (
+                  <BookingCard key={booking.id} booking={booking} index={index} />
+                ))
+              ) : (
+                <EmptyState type="active" />
+              )}
+            </TabsContent>
 
-          <TabsContent value="successful" className="space-y-4">
-            {successfulBookings.length > 0 ? (
-              successfulBookings.map((booking, index) => (
-                <BookingCard key={booking.id} booking={booking} index={index} />
-              ))
-            ) : (
-              <EmptyState type="successful" />
-            )}
-          </TabsContent>
+            <TabsContent value="successful" className="space-y-4">
+              {successfulBookings.length > 0 ? (
+                successfulBookings.map((booking, index) => (
+                  <BookingCard key={booking.id} booking={booking} index={index} />
+                ))
+              ) : (
+                <EmptyState type="successful" />
+              )}
+            </TabsContent>
 
-          <TabsContent value="failed" className="space-y-4">
-            {failedBookings.length > 0 ? (
-              failedBookings.map((booking, index) => (
-                <BookingCard key={booking.id} booking={booking} index={index} />
-              ))
-            ) : (
-              <EmptyState type="failed" />
-            )}
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="failed" className="space-y-4">
+              {failedBookings.length > 0 ? (
+                failedBookings.map((booking, index) => (
+                  <BookingCard key={booking.id} booking={booking} index={index} />
+                ))
+              ) : (
+                <EmptyState type="failed" />
+              )}
+            </TabsContent>
+          </Tabs>
+        )}
       </div>
     </PageLayout>
   );

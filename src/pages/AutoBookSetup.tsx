@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Minus, Plus, Check, Zap, Calendar, MapPin } from 'lucide-react';
+import { ArrowLeft, Minus, Plus, Check, Zap, Calendar, MapPin, AlertTriangle } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { getEventById } from '@/data/mockData';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useEvent } from '@/hooks/useEvents';
+import { useCreateAutoBook, useExistingAutoBook } from '@/hooks/useAutoBooks';
 import { useAuth } from '@/context/AuthContext';
 import { SeatType } from '@/types';
 import { toast } from '@/hooks/use-toast';
@@ -13,20 +15,40 @@ import { toast } from '@/hooks/use-toast';
 const AutoBookSetup: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
-  const event = getEventById(eventId || '');
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  
+  const { data: event, isLoading: eventLoading } = useEvent(eventId);
+  const { data: existingAutoBook, isLoading: autoBookLoading } = useExistingAutoBook(eventId);
+  const createAutoBook = useCreateAutoBook();
 
   const [quantity, setQuantity] = useState(2);
-  const [seatType, setSeatType] = useState<SeatType>('Premium');
+  const [seatType, setSeatType] = useState<SeatType>('premium');
   const [maxBudget, setMaxBudget] = useState(10000);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const seatTypes: SeatType[] = ['General', 'Premium', 'VIP'];
-  const seatPrices = { General: 1, Premium: 1.5, VIP: 2.5 };
+  const seatTypes: SeatType[] = ['general', 'premium', 'vip'];
+  const seatPrices = { general: 1, premium: 1.5, vip: 2.5 };
+  const seatLabels = { general: 'General', premium: 'Premium', vip: 'VIP' };
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate('/login', { state: { from: `/autobook/${eventId}` } });
+    }
+  }, [authLoading, isAuthenticated, navigate, eventId]);
+
+  if (authLoading || eventLoading || autoBookLoading) {
+    return (
+      <PageLayout>
+        <div className="max-w-2xl mx-auto px-4 py-8">
+          <Skeleton className="h-8 w-32 mb-6" />
+          <Skeleton className="h-32 w-full mb-6 rounded-2xl" />
+          <Skeleton className="h-96 w-full rounded-2xl" />
+        </div>
+      </PageLayout>
+    );
+  }
 
   if (!isAuthenticated) {
-    navigate('/login', { state: { from: `/autobook/${eventId}` } });
     return null;
   }
 
@@ -64,25 +86,61 @@ const AutoBookSetup: React.FC = () => {
     );
   }
 
-  const estimatedTotal = event.price * quantity * seatPrices[seatType];
+  if (existingAutoBook) {
+    return (
+      <PageLayout>
+        <div className="max-w-lg mx-auto px-4 py-16 text-center">
+          <div className="premium-card p-8">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+              <AlertTriangle className="w-8 h-8 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold text-foreground mb-2">Already Set Up</h1>
+            <p className="text-muted-foreground mb-6">
+              You already have an active auto-book for this event. Check your bookings to see its status.
+            </p>
+            <div className="space-y-3">
+              <Link to="/my-bookings">
+                <Button className="w-full">View My Bookings</Button>
+              </Link>
+              <Link to={`/event/${event.id}`}>
+                <Button variant="outline" className="w-full">Back to Event</Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </PageLayout>
+    );
+  }
+
+  const estimatedTotal = Number(event.price) * quantity * seatPrices[seatType];
+  const eventImage = event.image_url || `https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800&q=80`;
 
   const handleSubmit = async () => {
-    setIsSubmitting(true);
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setIsSubmitting(false);
-    setIsSuccess(true);
+    try {
+      await createAutoBook.mutateAsync({
+        eventId: event.id,
+        quantity,
+        seatType,
+        maxBudget,
+      });
 
-    toast({
-      title: "Auto-Book Activated!",
-      description: `We'll secure your ${quantity} ${seatType} tickets when they go live.`,
-    });
+      setIsSuccess(true);
 
-    setTimeout(() => {
-      navigate('/my-bookings');
-    }, 2000);
+      toast({
+        title: "Auto-Book Activated!",
+        description: `We'll secure your ${quantity} ${seatLabels[seatType]} tickets when they go live.`,
+      });
+
+      setTimeout(() => {
+        navigate('/my-bookings');
+      }, 2000);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create auto-book",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -141,7 +199,7 @@ const AutoBookSetup: React.FC = () => {
                 </h2>
                 <div className="flex items-start gap-4">
                   <img
-                    src={event.image}
+                    src={eventImage}
                     alt={event.name}
                     className="w-20 h-20 rounded-lg object-cover"
                   />
@@ -217,7 +275,7 @@ const AutoBookSetup: React.FC = () => {
                             : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
                         }`}
                       >
-                        {type}
+                        {seatLabels[type]}
                       </motion.button>
                     ))}
                   </div>
@@ -251,10 +309,10 @@ const AutoBookSetup: React.FC = () => {
                 <div className="p-4 rounded-xl bg-secondary/50 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Base Price</span>
-                    <span className="text-foreground">₹{event.price.toLocaleString()} × {quantity}</span>
+                    <span className="text-foreground">₹{Number(event.price).toLocaleString()} × {quantity}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Seat Type ({seatType})</span>
+                    <span className="text-muted-foreground">Seat Type ({seatLabels[seatType]})</span>
                     <span className="text-foreground">×{seatPrices[seatType]}</span>
                   </div>
                   <div className="border-t border-border pt-2 mt-2 flex justify-between">
@@ -270,10 +328,10 @@ const AutoBookSetup: React.FC = () => {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={handleSubmit}
-                  disabled={isSubmitting || maxBudget < estimatedTotal}
+                  disabled={createAutoBook.isPending || maxBudget < estimatedTotal}
                   className="w-full btn-gradient pulse-glow flex items-center justify-center gap-2 text-lg py-4 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? (
+                  {createAutoBook.isPending ? (
                     <>
                       <motion.div
                         animate={{ rotate: 360 }}

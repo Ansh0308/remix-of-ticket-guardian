@@ -1,79 +1,131 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { User } from '@/types';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client';
+
+interface Profile {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+}
 
 interface AuthContextType {
   user: User | null;
+  profile: Profile | null;
+  session: Session | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock user database
-const mockUsers: { email: string; password: string; name: string }[] = [
-  { email: 'demo@bookit.ai', password: 'demo123', name: 'Demo User' },
-];
-
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => {
-    const stored = localStorage.getItem('bookit_user');
-    return stored ? JSON.parse(stored) : null;
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const login = useCallback(async (email: string, password: string) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 800));
+  const fetchProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
 
-    const foundUser = mockUsers.find(u => u.email === email && u.password === password);
-    
-    if (foundUser) {
-      const userData: User = {
-        id: `user_${Date.now()}`,
-        name: foundUser.name,
-        email: foundUser.email,
-      };
-      setUser(userData);
-      localStorage.setItem('bookit_user', JSON.stringify(userData));
-      return { success: true };
+    if (!error && data) {
+      setProfile(data);
     }
+  };
 
-    return { success: false, error: 'Invalid email or password' };
+  useEffect(() => {
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        // Defer profile fetch with setTimeout
+        if (session?.user) {
+          setTimeout(() => {
+            fetchProfile(session.user.id);
+          }, 0);
+        } else {
+          setProfile(null);
+        }
+        
+        setIsLoading(false);
+      }
+    );
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      }
+      
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const register = useCallback(async (name: string, email: string, password: string) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 800));
+  const login = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    const existingUser = mockUsers.find(u => u.email === email);
-    
-    if (existingUser) {
-      return { success: false, error: 'Email already registered' };
+    if (error) {
+      return { success: false, error: error.message };
     }
 
-    // Add to mock database
-    mockUsers.push({ email, password, name });
-    
-    const userData: User = {
-      id: `user_${Date.now()}`,
-      name,
-      email,
-    };
-    setUser(userData);
-    localStorage.setItem('bookit_user', JSON.stringify(userData));
     return { success: true };
   }, []);
 
-  const logout = useCallback(() => {
+  const register = useCallback(async (name: string, email: string, password: string) => {
+    const redirectUrl = `${window.location.origin}/`;
+    
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: redirectUrl,
+        data: {
+          name,
+        },
+      },
+    });
+
+    if (error) {
+      if (error.message.includes('already registered')) {
+        return { success: false, error: 'This email is already registered. Please sign in instead.' };
+      }
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  }, []);
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('bookit_user');
+    setSession(null);
+    setProfile(null);
   }, []);
 
   return (
     <AuthContext.Provider value={{
       user,
+      profile,
+      session,
       isAuthenticated: !!user,
+      isLoading,
       login,
       register,
       logout,

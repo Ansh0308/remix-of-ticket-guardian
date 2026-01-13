@@ -14,16 +14,209 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      auto_books: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          max_budget: number
+          quantity: number
+          seat_type: Database["public"]["Enums"]["seat_type"]
+          status: Database["public"]["Enums"]["autobook_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          max_budget: number
+          quantity: number
+          seat_type?: Database["public"]["Enums"]["seat_type"]
+          status?: Database["public"]["Enums"]["autobook_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          max_budget?: number
+          quantity?: number
+          seat_type?: Database["public"]["Enums"]["seat_type"]
+          status?: Database["public"]["Enums"]["autobook_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_books_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      events: {
+        Row: {
+          category: string
+          city: string
+          created_at: string
+          date: string
+          description: string | null
+          high_demand: boolean
+          id: string
+          image_url: string | null
+          name: string
+          price: number
+          status: Database["public"]["Enums"]["event_status"]
+          ticket_release_time: string
+          updated_at: string
+          venue: string
+        }
+        Insert: {
+          category: string
+          city: string
+          created_at?: string
+          date: string
+          description?: string | null
+          high_demand?: boolean
+          id?: string
+          image_url?: string | null
+          name: string
+          price?: number
+          status?: Database["public"]["Enums"]["event_status"]
+          ticket_release_time: string
+          updated_at?: string
+          venue: string
+        }
+        Update: {
+          category?: string
+          city?: string
+          created_at?: string
+          date?: string
+          description?: string | null
+          high_demand?: boolean
+          id?: string
+          image_url?: string | null
+          name?: string
+          price?: number
+          status?: Database["public"]["Enums"]["event_status"]
+          ticket_release_time?: string
+          updated_at?: string
+          venue?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          email: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          email: string
+          id: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          email?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      resale_tickets: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          price: number
+          proof_url: string | null
+          seller_id: string
+          status: Database["public"]["Enums"]["resale_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          price: number
+          proof_url?: string | null
+          seller_id: string
+          status?: Database["public"]["Enums"]["resale_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          price?: number
+          proof_url?: string | null
+          seller_id?: string
+          status?: Database["public"]["Enums"]["resale_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "resale_tickets_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
+      autobook_status: "active" | "success" | "failed"
+      event_status: "coming_soon" | "live"
+      resale_status: "available" | "sold"
+      seat_type: "general" | "premium" | "vip"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +343,12 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+      autobook_status: ["active", "success", "failed"],
+      event_status: ["coming_soon", "live"],
+      resale_status: ["available", "sold"],
+      seat_type: ["general", "premium", "vip"],
+    },
   },
 } as const

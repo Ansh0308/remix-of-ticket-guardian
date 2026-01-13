@@ -29,6 +29,8 @@ const EventCard: React.FC<EventCardProps> = ({ event, index = 0 }) => {
     return colors[category] || 'bg-primary/10 text-primary border-primary/20';
   };
 
+  const eventImage = event.image_url || `https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800&q=80`;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -42,7 +44,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, index = 0 }) => {
           {/* Image */}
           <div className="relative h-48 overflow-hidden">
             <img
-              src={event.image}
+              src={eventImage}
               alt={event.name}
               className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
             />
@@ -56,7 +58,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, index = 0 }) => {
             </div>
 
             {/* High Demand Badge */}
-            {event.isHighDemand && (
+            {event.high_demand && (
               <motion.div
                 animate={{ scale: [1, 1.05, 1] }}
                 transition={{ duration: 2, repeat: Infinity }}
@@ -98,7 +100,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, index = 0 }) => {
             <div className="mt-4 flex items-center justify-between">
               <div>
                 <span className="text-xs text-muted-foreground">Starting from</span>
-                <p className="text-lg font-bold text-foreground">₹{event.price.toLocaleString()}</p>
+                <p className="text-lg font-bold text-foreground">₹{Number(event.price).toLocaleString()}</p>
               </div>
               <motion.div
                 initial={{ opacity: 0, x: 10 }}

@@ -6,20 +6,35 @@ import PageLayout from '@/components/layout/PageLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { mockEvents } from '@/data/mockData';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useEvents } from '@/hooks/useEvents';
+import { useCreateResaleTicket } from '@/hooks/useResaleTickets';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
 
 const SellTicket: React.FC = () => {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { data: events = [], isLoading: eventsLoading } = useEvents();
+  const createResaleTicket = useCreateResaleTicket();
   
   const [selectedEvent, setSelectedEvent] = useState('');
   const [price, setPrice] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+
+  if (authLoading) {
+    return (
+      <PageLayout>
+        <div className="max-w-xl mx-auto px-4 py-8">
+          <Skeleton className="h-8 w-32 mb-6" />
+          <Skeleton className="h-12 w-48 mb-8" />
+          <Skeleton className="h-96 w-full rounded-2xl" />
+        </div>
+      </PageLayout>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
@@ -79,22 +94,29 @@ const SellTicket: React.FC = () => {
       return;
     }
 
-    setIsSubmitting(true);
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setIsSubmitting(false);
-    setIsSuccess(true);
+    try {
+      await createResaleTicket.mutateAsync({
+        eventId: selectedEvent,
+        price: parseFloat(price),
+      });
+      
+      setIsSuccess(true);
 
-    toast({
-      title: "Ticket Listed!",
-      description: "Your ticket is now available in the marketplace.",
-    });
+      toast({
+        title: "Ticket Listed!",
+        description: "Your ticket is now available in the marketplace.",
+      });
 
-    setTimeout(() => {
-      navigate('/resale');
-    }, 2000);
+      setTimeout(() => {
+        navigate('/resale');
+      }, 2000);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to list ticket. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -159,18 +181,22 @@ const SellTicket: React.FC = () => {
                 <label className="text-sm font-medium text-foreground">
                   Select Event *
                 </label>
-                <Select value={selectedEvent} onValueChange={setSelectedEvent}>
-                  <SelectTrigger className="h-12 bg-background">
-                    <SelectValue placeholder="Choose an event" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockEvents.map((event) => (
-                      <SelectItem key={event.id} value={event.id}>
-                        {event.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {eventsLoading ? (
+                  <Skeleton className="h-12 w-full" />
+                ) : (
+                  <Select value={selectedEvent} onValueChange={setSelectedEvent}>
+                    <SelectTrigger className="h-12 bg-background">
+                      <SelectValue placeholder="Choose an event" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {events.map((event) => (
+                        <SelectItem key={event.id} value={event.id}>
+                          {event.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
               {/* Price */}
@@ -239,10 +265,10 @@ const SellTicket: React.FC = () => {
                 type="submit"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                disabled={isSubmitting || !selectedEvent || !price}
+                disabled={createResaleTicket.isPending || !selectedEvent || !price}
                 className="w-full btn-gradient flex items-center justify-center gap-2 text-lg py-4 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSubmitting ? (
+                {createResaleTicket.isPending ? (
                   <>
                     <motion.div
                       animate={{ rotate: 360 }}
