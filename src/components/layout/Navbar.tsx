@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useState } from 'react';
 
 const Navbar: React.FC = () => {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, profile, logout } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -66,7 +66,7 @@ const Navbar: React.FC = () => {
               <>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary">
                   <User className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">{user?.name}</span>
+                  <span className="text-sm font-medium">{profile?.name}</span>
                 </div>
                 <Button
                   variant="ghost"
@@ -133,7 +133,7 @@ const Navbar: React.FC = () => {
                 {isAuthenticated ? (
                   <>
                     <div className="px-4 py-2 text-sm text-muted-foreground">
-                      Signed in as <span className="font-medium text-foreground">{user?.name}</span>
+                      Signed in as <span className="font-medium text-foreground">{profile?.name}</span>
                     </div>
                     <button
                       onClick={() => { logout(); setMobileMenuOpen(false); }}
