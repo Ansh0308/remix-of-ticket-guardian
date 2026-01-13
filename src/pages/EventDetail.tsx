@@ -6,14 +6,33 @@ import PageLayout from '@/components/layout/PageLayout';
 import StatusBadge from '@/components/events/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getEventById } from '@/data/mockData';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useEvent } from '@/hooks/useEvents';
 import { useAuth } from '@/context/AuthContext';
 
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  const event = getEventById(id || '');
+  
+  const { data: event, isLoading } = useEvent(id);
+
+  if (isLoading) {
+    return (
+      <PageLayout>
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <Skeleton className="h-8 w-32 mb-6" />
+          <div className="grid lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-6">
+              <Skeleton className="h-96 w-full rounded-2xl" />
+              <Skeleton className="h-64 w-full rounded-2xl" />
+            </div>
+            <Skeleton className="h-80 w-full rounded-2xl" />
+          </div>
+        </div>
+      </PageLayout>
+    );
+  }
 
   if (!event) {
     return (
@@ -45,6 +64,7 @@ const EventDetail: React.FC = () => {
   };
 
   const isAutoBookAvailable = event.status === 'coming_soon';
+  const eventImage = event.image_url || `https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800&q=80`;
 
   const handleAutoBookClick = () => {
     if (!isAuthenticated) {
@@ -82,14 +102,14 @@ const EventDetail: React.FC = () => {
             {/* Event Image */}
             <div className="relative rounded-2xl overflow-hidden">
               <img
-                src={event.image}
+                src={eventImage}
                 alt={event.name}
                 className="w-full h-64 md:h-96 object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
               <div className="absolute bottom-4 left-4 flex gap-2">
                 <StatusBadge status={event.status} size="lg" animated />
-                {event.isHighDemand && (
+                {event.high_demand && (
                   <Badge className="badge-high-demand flex items-center gap-1">
                     <Zap className="w-3 h-3" />
                     High Demand
@@ -134,7 +154,7 @@ const EventDetail: React.FC = () => {
                   <div>
                     <p className="text-sm text-muted-foreground">Ticket Release</p>
                     <p className="font-medium text-foreground">
-                      {formatDate(event.ticketReleaseTime)} at {formatTime(event.ticketReleaseTime)}
+                      {formatDate(event.ticket_release_time)} at {formatTime(event.ticket_release_time)}
                     </p>
                   </div>
                 </div>
@@ -154,7 +174,7 @@ const EventDetail: React.FC = () => {
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Starting from</p>
                 <p className="text-3xl font-bold text-foreground">
-                  ₹{event.price.toLocaleString()}
+                  ₹{Number(event.price).toLocaleString()}
                 </p>
               </div>
 
@@ -166,7 +186,7 @@ const EventDetail: React.FC = () => {
                 </div>
                 <p className="text-sm text-muted-foreground">
                   {event.status === 'coming_soon' 
-                    ? `Releases on ${formatDate(event.ticketReleaseTime)}`
+                    ? `Releases on ${formatDate(event.ticket_release_time)}`
                     : 'Tickets are available now'}
                 </p>
               </div>

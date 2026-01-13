@@ -4,19 +4,20 @@ import { Search, Filter, SlidersHorizontal } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import EventCard from '@/components/events/EventCard';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { mockEvents } from '@/data/mockData';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useEvents } from '@/hooks/useEvents';
 
 const Home: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
 
+  const { data: events = [], isLoading } = useEvents();
+
   const categories = ['All', 'Concert', 'Cricket', 'Comedy', 'Festival'];
   const statuses = ['All', 'Coming Soon', 'Live'];
 
-  const filteredEvents = mockEvents.filter(event => {
+  const filteredEvents = events.filter(event => {
     const matchesSearch = event.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       event.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
       event.venue.toLowerCase().includes(searchQuery.toLowerCase());
@@ -125,8 +126,21 @@ const Home: React.FC = () => {
           </p>
         </motion.div>
 
-        {/* Events Grid */}
-        {filteredEvents.length > 0 ? (
+        {/* Loading State */}
+        {isLoading ? (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="premium-card overflow-hidden">
+                <Skeleton className="h-48 w-full" />
+                <div className="p-5 space-y-3">
+                  <Skeleton className="h-6 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredEvents.length > 0 ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredEvents.map((event, index) => (
               <EventCard key={event.id} event={event} index={index} />

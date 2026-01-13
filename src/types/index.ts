@@ -4,44 +4,51 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  avatar_url?: string;
 }
 
 export interface Event {
   id: string;
   name: string;
-  category: 'Cricket' | 'Concert' | 'Comedy' | 'Festival';
-  description: string;
+  category: string;
+  description: string | null;
   date: string;
   city: string;
   venue: string;
-  ticketReleaseTime: string;
+  ticket_release_time: string;
   status: 'coming_soon' | 'live';
-  image: string;
+  image_url: string | null;
   price: number;
-  isHighDemand?: boolean;
+  high_demand: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AutoBook {
   id: string;
-  userId: string;
-  eventId: string;
+  user_id: string;
+  event_id: string;
   quantity: number;
-  seatType: 'General' | 'Premium' | 'VIP';
-  maxBudget: number;
+  seat_type: 'general' | 'premium' | 'vip';
+  max_budget: number;
   status: 'active' | 'success' | 'failed';
-  createdAt: string;
+  created_at: string;
+  updated_at: string;
   event?: Event;
+  profiles?: { name: string; email: string };
 }
 
 export interface ResaleTicket {
   id: string;
-  sellerId: string;
-  sellerName: string;
-  eventId: string;
+  seller_id: string;
+  event_id: string;
   price: number;
   status: 'available' | 'sold';
-  createdAt: string;
+  proof_url: string | null;
+  created_at: string;
+  updated_at: string;
   event?: Event;
+  profiles?: { name: string; email: string };
 }
 
-export type SeatType = 'General' | 'Premium' | 'VIP';
+export type SeatType = 'general' | 'premium' | 'vip';

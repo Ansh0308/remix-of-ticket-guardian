@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Ticket, Mail, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -10,7 +9,7 @@ import { toast } from '@/hooks/use-toast';
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, isAuthenticated, isLoading: authLoading } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,6 +17,12 @@ const Login: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   const from = (location.state as { from?: string })?.from || '/home';
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      navigate(from, { replace: true });
+    }
+  }, [authLoading, isAuthenticated, navigate, from]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +55,18 @@ const Login: React.FC = () => {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+          className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex">
       {/* Left Side - Form */}
@@ -74,14 +91,6 @@ const Login: React.FC = () => {
             <h1 className="text-3xl font-bold text-foreground mb-2">Welcome back</h1>
             <p className="text-muted-foreground">
               Sign in to continue to your account
-            </p>
-          </div>
-
-          {/* Demo Credentials Notice */}
-          <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 mb-6">
-            <p className="text-sm text-center">
-              <span className="font-medium text-primary">Demo:</span>{' '}
-              <span className="text-muted-foreground">demo@bookit.ai / demo123</span>
             </p>
           </div>
 
