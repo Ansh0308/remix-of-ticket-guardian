@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AutoBook, SeatType } from '@/types';
 import { useAuth } from '@/context/AuthContext';
@@ -8,6 +8,10 @@ import { toast } from '@/hooks/use-toast';
 export const useAutoBooks = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
+  const userIdRef = useRef(user?.id);
+  userIdRef.current = user?.id;
 
   // Set up real-time subscription for auto_books changes
   useEffect(() => {
@@ -27,8 +31,9 @@ export const useAutoBooks = () => {
           console.log('Auto-book real-time update:', payload);
           
           // Invalidate queries to refetch data
-          queryClient.invalidateQueries({ queryKey: ['autoBooks', user.id] });
-          queryClient.invalidateQueries({ queryKey: ['autoBook', user.id] });
+          const userId = userIdRef.current;
+          queryClientRef.current.invalidateQueries({ queryKey: ['autoBooks', userId] });
+          queryClientRef.current.invalidateQueries({ queryKey: ['autoBook', userId] });
 
           // Show toast notification for status changes
           if (payload.eventType === 'UPDATE' && payload.new && payload.old) {
@@ -57,7 +62,7 @@ export const useAutoBooks = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, queryClient]);
+  }, [user?.id]);
 
   return useQuery({
     queryKey: ['autoBooks', user?.id],
@@ -92,8 +97,11 @@ export const useAutoBooks = () => {
 export const useExistingAutoBook = (eventId: string | undefined) => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
+  const userIdRef = useRef(user?.id);
+  userIdRef.current = user?.id;
 
-  // Set up real-time subscription for this specific auto-book
   useEffect(() => {
     if (!user?.id || !eventId) return;
 
@@ -109,8 +117,9 @@ export const useExistingAutoBook = (eventId: string | undefined) => {
         },
         (payload) => {
           console.log('Auto-book event real-time update:', payload);
-          queryClient.invalidateQueries({ queryKey: ['autoBook', user.id, eventId] });
-          queryClient.invalidateQueries({ queryKey: ['autoBooks', user.id] });
+          const userId = userIdRef.current;
+          queryClientRef.current.invalidateQueries({ queryKey: ['autoBook', userId, eventId] });
+          queryClientRef.current.invalidateQueries({ queryKey: ['autoBooks', userId] });
         }
       )
       .subscribe();
@@ -118,7 +127,7 @@ export const useExistingAutoBook = (eventId: string | undefined) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, queryClient]);
+  }, [user?.id, eventId]);
 
   return useQuery({
     queryKey: ['autoBook', user?.id, eventId],

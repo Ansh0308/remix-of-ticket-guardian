@@ -1,10 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Event } from '@/types';
 
 export const useEvents = () => {
   const queryClient = useQueryClient();
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
 
   // Set up real-time subscription for event status changes
   useEffect(() => {
@@ -19,11 +21,11 @@ export const useEvents = () => {
         },
         (payload) => {
           console.log('Event real-time update:', payload);
-          queryClient.invalidateQueries({ queryKey: ['events'] });
+          // Use ref to avoid stale closure and dependency issues
+          queryClientRef.current.invalidateQueries({ queryKey: ['events'] });
           
-          // Also invalidate specific event query if needed
           if (payload.new && typeof payload.new === 'object' && 'id' in payload.new) {
-            queryClient.invalidateQueries({ queryKey: ['event', payload.new.id] });
+            queryClientRef.current.invalidateQueries({ queryKey: ['event', payload.new.id] });
           }
         }
       )
@@ -32,7 +34,7 @@ export const useEvents = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [queryClient]);
+  }, []); // Empty dependency array - subscription is stable
 
   return useQuery({
     queryKey: ['events'],
@@ -54,8 +56,9 @@ export const useEvents = () => {
 
 export const useEvent = (eventId: string | undefined) => {
   const queryClient = useQueryClient();
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
 
-  // Set up real-time subscription for this specific event
   useEffect(() => {
     if (!eventId) return;
 
@@ -71,8 +74,8 @@ export const useEvent = (eventId: string | undefined) => {
         },
         (payload) => {
           console.log('Single event real-time update:', payload);
-          queryClient.invalidateQueries({ queryKey: ['event', eventId] });
-          queryClient.invalidateQueries({ queryKey: ['events'] });
+          queryClientRef.current.invalidateQueries({ queryKey: ['event', eventId] });
+          queryClientRef.current.invalidateQueries({ queryKey: ['events'] });
         }
       )
       .subscribe();
@@ -80,7 +83,7 @@ export const useEvent = (eventId: string | undefined) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [eventId, queryClient]);
+  }, [eventId]);
 
   return useQuery({
     queryKey: ['event', eventId],
