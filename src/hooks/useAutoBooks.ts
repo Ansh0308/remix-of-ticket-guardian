@@ -1,10 +1,63 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AutoBook, SeatType } from '@/types';
 import { useAuth } from '@/context/AuthContext';
+import { toast } from '@/hooks/use-toast';
 
 export const useAutoBooks = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  // Set up real-time subscription for auto_books changes
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel('auto-books-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'auto_books',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('Auto-book real-time update:', payload);
+          
+          // Invalidate queries to refetch data
+          queryClient.invalidateQueries({ queryKey: ['autoBooks', user.id] });
+          queryClient.invalidateQueries({ queryKey: ['autoBook', user.id] });
+
+          // Show toast notification for status changes
+          if (payload.eventType === 'UPDATE' && payload.new && payload.old) {
+            const newRecord = payload.new as { status: string; event_id: string };
+            const oldRecord = payload.old as { status: string };
+            
+            if (newRecord.status !== oldRecord.status) {
+              if (newRecord.status === 'success') {
+                toast({
+                  title: "🎉 Booking Successful!",
+                  description: "Your auto-book request was processed successfully. Check your bookings!",
+                });
+              } else if (newRecord.status === 'failed') {
+                toast({
+                  title: "❌ Booking Failed",
+                  description: "Your auto-book request couldn't be completed. See details in My Bookings.",
+                  variant: "destructive",
+                });
+              }
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, queryClient]);
 
   return useQuery({
     queryKey: ['autoBooks', user?.id],
@@ -38,6 +91,34 @@ export const useAutoBooks = () => {
 
 export const useExistingAutoBook = (eventId: string | undefined) => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  // Set up real-time subscription for this specific auto-book
+  useEffect(() => {
+    if (!user?.id || !eventId) return;
+
+    const channel = supabase
+      .channel(`auto-book-${eventId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'auto_books',
+          filter: `event_id=eq.${eventId}`,
+        },
+        (payload) => {
+          console.log('Auto-book event real-time update:', payload);
+          queryClient.invalidateQueries({ queryKey: ['autoBook', user.id, eventId] });
+          queryClient.invalidateQueries({ queryKey: ['autoBooks', user.id] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, eventId, queryClient]);
 
   return useQuery({
     queryKey: ['autoBook', user?.id, eventId],
