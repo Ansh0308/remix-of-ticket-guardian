@@ -1,21 +1,61 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, SlidersHorizontal, Sparkles, Calendar, TrendingUp } from 'lucide-react';
+import { Search, Filter, SlidersHorizontal, Sparkles, Calendar, TrendingUp, RefreshCw, Loader2 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import EventCard from '@/components/events/EventCard';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useEvents } from '@/hooks/useEvents';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 const Home: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
+  const [isScraping, setIsScraping] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: events = [], isLoading } = useEvents();
 
-  const categories = ['All', 'Concert', 'Cricket', 'Comedy', 'Festival'];
+  const categories = ['All', 'Concert', 'Cricket', 'Comedy', 'Festival', 'Theatre', 'Workshop', 'Sports'];
   const statuses = ['All', 'Coming Soon', 'Live'];
+
+  const handleScrapeEvents = async () => {
+    setIsScraping(true);
+    try {
+      toast({
+        title: "Scraping Events",
+        description: "Fetching real events from BookMyShow, Insider.in & more...",
+      });
+
+      const { data, error } = await supabase.functions.invoke('scrape-events');
+
+      if (error) throw error;
+
+      if (data?.success) {
+        toast({
+          title: "Events Updated!",
+          description: `Successfully fetched ${data.eventsCount} real events from India`,
+        });
+        queryClient.invalidateQueries({ queryKey: ['events'] });
+      } else {
+        throw new Error(data?.error || 'Failed to scrape events');
+      }
+    } catch (error: any) {
+      console.error('Error scraping events:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to scrape events",
+        variant: "destructive",
+      });
+    } finally {
+      setIsScraping(false);
+    }
+  };
 
   const filteredEvents = events.filter(event => {
     const matchesSearch = event.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -60,6 +100,24 @@ const Home: React.FC = () => {
               <p className="text-muted-foreground text-lg">
                 Discover upcoming events and set up auto-booking before tickets go live
               </p>
+              <Button
+                onClick={handleScrapeEvents}
+                disabled={isScraping}
+                className="mt-4 gap-2"
+                variant="outline"
+              >
+                {isScraping ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Scraping Events...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4" />
+                    Fetch Real Events from India
+                  </>
+                )}
+              </Button>
             </div>
 
             {/* Quick Stats */}
