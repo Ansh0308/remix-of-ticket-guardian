@@ -19,13 +19,53 @@ Deno.serve(async (req) => {
 
     console.log("Starting auto-book processing...");
 
+    // Parse request body for optional parameters
+    let testMode = false;
+    let eventIdsToProcess: string[] = [];
+    
+    try {
+      const body = await req.json();
+      testMode = body?.testMode === true;
+      eventIdsToProcess = body?.eventIds || [];
+      console.log(`Request params - testMode: ${testMode}, eventIds: ${eventIdsToProcess.join(', ')}`);
+    } catch {
+      // No body or invalid JSON, proceed with defaults
+      console.log("No request body, using defaults");
+    }
+
+    // If in test mode with specific event IDs, update those events to be live first
+    if (testMode && eventIdsToProcess.length > 0) {
+      console.log(`Test mode: Setting events to live and updating ticket release time`);
+      
+      const { error: updateEventsError } = await supabase
+        .from("events")
+        .update({ 
+          status: "live", 
+          ticket_release_time: new Date().toISOString() 
+        })
+        .in("id", eventIdsToProcess);
+
+      if (updateEventsError) {
+        console.error("Error updating events for test:", updateEventsError);
+      } else {
+        console.log(`Updated ${eventIdsToProcess.length} events to live status`);
+      }
+    }
+
     // Get all live events where ticket release time has passed
     const now = new Date().toISOString();
-    const { data: liveEvents, error: eventsError } = await supabase
+    let eventsQuery = supabase
       .from("events")
       .select("id, name, price, ticket_release_time")
       .eq("status", "live")
       .lte("ticket_release_time", now);
+
+    // If specific event IDs provided, filter to those
+    if (eventIdsToProcess.length > 0) {
+      eventsQuery = eventsQuery.in("id", eventIdsToProcess);
+    }
+
+    const { data: liveEvents, error: eventsError } = await eventsQuery;
 
     if (eventsError) {
       console.error("Error fetching live events:", eventsError);
@@ -60,7 +100,7 @@ Deno.serve(async (req) => {
 
     if (!activeAutoBooks || activeAutoBooks.length === 0) {
       return new Response(
-        JSON.stringify({ message: "No active auto-books to process", processed: 0 }),
+        JSON.stringify({ message: "No active auto-books to process", processed: 0, eventsProcessed: liveEvents.length }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -68,7 +108,15 @@ Deno.serve(async (req) => {
     const results = {
       success: 0,
       failed: 0,
-      details: [] as Array<{ userId: string; eventName: string; status: string; reason?: string }>,
+      details: [] as Array<{ 
+        autoBookId: string;
+        userId: string; 
+        eventName: string; 
+        status: string; 
+        reason?: string;
+        quantity: number;
+        seatType: string;
+      }>,
     };
 
     // Process each auto-book
@@ -82,19 +130,20 @@ Deno.serve(async (req) => {
 
       // Simulate booking logic:
       // - Check if total cost is within budget
-      // - Simulate ~80% success rate for realistic behavior
+      // - In test mode, always succeed if within budget
+      // - Otherwise, simulate ~80% success rate for realistic behavior
       const withinBudget = totalCost <= autoBook.max_budget;
-      const randomSuccess = Math.random() < 0.8; // 80% base success rate
+      const randomSuccess = testMode ? true : Math.random() < 0.8; // 100% in test mode, 80% normally
 
       if (!withinBudget) {
         newStatus = "failed";
-        reason = `Total cost $${totalCost} exceeds budget $${autoBook.max_budget}`;
+        reason = `Total cost ₹${totalCost} exceeds budget ₹${autoBook.max_budget}`;
       } else if (!randomSuccess) {
         newStatus = "failed";
         reason = "Tickets sold out - high demand event";
       } else {
         newStatus = "success";
-        reason = `Successfully booked ${autoBook.quantity} ${autoBook.seat_type} ticket(s)`;
+        reason = `Successfully booked ${autoBook.quantity} ${autoBook.seat_type} ticket(s) for ₹${totalCost}`;
       }
 
       // Update auto-book status
@@ -107,10 +156,13 @@ Deno.serve(async (req) => {
         console.error(`Error updating auto-book ${autoBook.id}:`, updateError);
         results.failed++;
         results.details.push({
+          autoBookId: autoBook.id,
           userId: autoBook.user_id,
           eventName: event.name,
           status: "error",
           reason: "Database update failed",
+          quantity: autoBook.quantity,
+          seatType: autoBook.seat_type,
         });
       } else {
         if (newStatus === "success") {
@@ -119,10 +171,13 @@ Deno.serve(async (req) => {
           results.failed++;
         }
         results.details.push({
+          autoBookId: autoBook.id,
           userId: autoBook.user_id,
           eventName: event.name,
           status: newStatus,
           reason,
+          quantity: autoBook.quantity,
+          seatType: autoBook.seat_type,
         });
         console.log(`Auto-book ${autoBook.id}: ${newStatus} - ${reason}`);
       }
@@ -134,6 +189,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         message: "Auto-book processing complete",
         processed: activeAutoBooks.length,
+        eventsProcessed: liveEvents.length,
         results,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

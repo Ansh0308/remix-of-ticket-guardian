@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, Ticket, Zap, Trash2 } from 'lucide-react';
+import { Calendar, MapPin, Ticket, Zap, Trash2, Play, Loader2 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import StatusBadge from '@/components/events/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,13 +11,66 @@ import { useAutoBooks, useCancelAutoBook } from '@/hooks/useAutoBooks';
 import { useAuth } from '@/context/AuthContext';
 import { AutoBook } from '@/types';
 import { toast } from '@/hooks/use-toast';
-
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
 const MyBookings: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState('active');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data: allBookings = [], isLoading: bookingsLoading } = useAutoBooks();
   const cancelAutoBook = useCancelAutoBook();
+
+  const handleProcessAutoBooks = async () => {
+    // Get all active bookings event IDs
+    const activeBookings = allBookings.filter(b => b.status === 'active');
+    if (activeBookings.length === 0) {
+      toast({
+        title: "No Active Auto-Books",
+        description: "You don't have any active auto-book requests to process.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const eventIds = [...new Set(activeBookings.map(b => b.event_id))];
+    
+    setIsProcessing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('process-auto-books', {
+        body: { testMode: true, eventIds }
+      });
+
+      if (error) throw error;
+
+      // Refresh the bookings list
+      await queryClient.invalidateQueries({ queryKey: ['autoBooks'] });
+
+      toast({
+        title: "Processing Complete!",
+        description: `Processed ${data.processed} auto-book(s). Success: ${data.results?.success || 0}, Failed: ${data.results?.failed || 0}`,
+      });
+
+      // Show details for each booking
+      data.results?.details?.forEach((detail: { eventName: string; status: string; reason?: string }) => {
+        toast({
+          title: detail.eventName,
+          description: `${detail.status.toUpperCase()}: ${detail.reason}`,
+          variant: detail.status === 'success' ? 'default' : 'destructive',
+        });
+      });
+    } catch (error) {
+      console.error('Error processing auto-books:', error);
+      toast({
+        title: "Processing Failed",
+        description: "Failed to process auto-books. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   if (authLoading) {
     return (
@@ -211,14 +264,36 @@ const MyBookings: React.FC = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
+          className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
         >
-          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-2">
-            My Bookings
-          </h1>
-          <p className="text-muted-foreground">
-            Track your auto-book requests and booking history
-          </p>
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-2">
+              My Bookings
+            </h1>
+            <p className="text-muted-foreground">
+              Track your auto-book requests and booking history
+            </p>
+          </div>
+          
+          {activeBookings.length > 0 && (
+            <Button
+              onClick={handleProcessAutoBooks}
+              disabled={isProcessing}
+              className="bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white shadow-lg"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 mr-2" />
+                  Process Auto-Books Now
+                </>
+              )}
+            </Button>
+          )}
         </motion.div>
 
         {bookingsLoading ? (
