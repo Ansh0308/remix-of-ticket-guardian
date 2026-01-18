@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           created_at: string
           event_id: string
+          failure_reason: string | null
           id: string
           max_budget: number
           quantity: number
@@ -29,6 +30,7 @@ export type Database = {
         Insert: {
           created_at?: string
           event_id: string
+          failure_reason?: string | null
           id?: string
           max_budget: number
           quantity: number
@@ -40,6 +42,7 @@ export type Database = {
         Update: {
           created_at?: string
           event_id?: string
+          failure_reason?: string | null
           id?: string
           max_budget?: number
           quantity?: number
@@ -65,10 +68,14 @@ export type Database = {
           created_at: string
           date: string
           description: string | null
+          event_url: string | null
           high_demand: boolean
           id: string
           image_url: string | null
+          is_active: boolean | null
+          last_scraped_at: string | null
           name: string
+          platform_source: string | null
           price: number
           status: Database["public"]["Enums"]["event_status"]
           ticket_release_time: string
@@ -81,10 +88,14 @@ export type Database = {
           created_at?: string
           date: string
           description?: string | null
+          event_url?: string | null
           high_demand?: boolean
           id?: string
           image_url?: string | null
+          is_active?: boolean | null
+          last_scraped_at?: string | null
           name: string
+          platform_source?: string | null
           price?: number
           status?: Database["public"]["Enums"]["event_status"]
           ticket_release_time: string
@@ -97,10 +108,14 @@ export type Database = {
           created_at?: string
           date?: string
           description?: string | null
+          event_url?: string | null
           high_demand?: boolean
           id?: string
           image_url?: string | null
+          is_active?: boolean | null
+          last_scraped_at?: string | null
           name?: string
+          platform_source?: string | null
           price?: number
           status?: Database["public"]["Enums"]["event_status"]
           ticket_release_time?: string
@@ -177,6 +192,42 @@ export type Database = {
           },
         ]
       }
+      scrape_health: {
+        Row: {
+          created_at: string | null
+          error_message: string | null
+          events_count: number | null
+          id: string
+          last_attempt_at: string | null
+          last_successful_scrape: string | null
+          platform_source: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          error_message?: string | null
+          events_count?: number | null
+          id?: string
+          last_attempt_at?: string | null
+          last_successful_scrape?: string | null
+          platform_source: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          error_message?: string | null
+          events_count?: number | null
+          id?: string
+          last_attempt_at?: string | null
+          last_successful_scrape?: string | null
+          platform_source?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -214,7 +265,7 @@ export type Database = {
     Enums: {
       app_role: "admin" | "user"
       autobook_status: "active" | "success" | "failed"
-      event_status: "coming_soon" | "live"
+      event_status: "coming_soon" | "live" | "sold_out" | "expired"
       resale_status: "available" | "sold"
       seat_type: "general" | "premium" | "vip"
     }
@@ -346,7 +397,7 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "user"],
       autobook_status: ["active", "success", "failed"],
-      event_status: ["coming_soon", "live"],
+      event_status: ["coming_soon", "live", "sold_out", "expired"],
       resale_status: ["available", "sold"],
       seat_type: ["general", "premium", "vip"],
     },
