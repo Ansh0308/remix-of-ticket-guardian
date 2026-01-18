@@ -16,6 +16,18 @@ interface ScrapedEvent {
   image_url: string | null;
   high_demand: boolean;
   ticket_release_time: string;
+  platform_source: string;
+  event_url: string | null;
+  last_scraped_at: string;
+  is_active: boolean;
+  status: 'coming_soon' | 'live' | 'sold_out' | 'expired';
+}
+
+interface PlatformResult {
+  platform: string;
+  eventsScraped: number;
+  success: boolean;
+  error?: string;
 }
 
 const extractionSchema = {
@@ -33,7 +45,9 @@ const extractionSchema = {
           category: { type: "string", description: "Event category like Concert, Comedy, Theatre, Sports, Workshop" },
           price: { type: "number", description: "Ticket price in INR" },
           description: { type: "string", description: "Brief event description" },
-          image_url: { type: "string", description: "Event poster image URL" }
+          image_url: { type: "string", description: "Event poster image URL" },
+          event_url: { type: "string", description: "Link to the event page" },
+          sold_out: { type: "boolean", description: "Whether the event is sold out" }
         },
         required: ["name"]
       }
@@ -62,20 +76,33 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log('Starting to scrape events from Indian platforms...');
+    const now = new Date();
+    const platformResults: PlatformResult[] = [];
+
+    // Define scrape targets with platform info
+    const targets = [
+      { url: 'https://in.bookmyshow.com/explore/events-mumbai', city: 'Mumbai', platform: 'BookMyShow' },
+      { url: 'https://in.bookmyshow.com/explore/events-delhi', city: 'Delhi', platform: 'BookMyShow' },
+      { url: 'https://insider.in/all-events-in-mumbai', city: 'Mumbai', platform: 'Insider.in' },
+      { url: 'https://insider.in/all-events-in-delhi', city: 'Delhi', platform: 'Insider.in' },
+      { url: 'https://insider.in/all-events-in-bengaluru', city: 'Bangalore', platform: 'Insider.in' },
+    ];
 
     const scrapedEvents: ScrapedEvent[] = [];
-
-    // Define scrape targets
-    const targets = [
-      { url: 'https://in.bookmyshow.com/explore/events-mumbai', city: 'Mumbai' },
-      { url: 'https://insider.in/all-events-in-mumbai', city: 'Mumbai' },
-      { url: 'https://insider.in/all-events-in-delhi', city: 'Delhi' },
-      { url: 'https://insider.in/all-events-in-bengaluru', city: 'Bangalore' },
-    ];
+    const platformEventCounts: Record<string, number> = {};
 
     // Scrape each target
     for (const target of targets) {
-      console.log(`Scraping ${target.url}...`);
+      console.log(`Scraping ${target.platform} - ${target.city}...`);
+      
+      // Update scrape_health last_attempt_at
+      await supabase
+        .from('scrape_health')
+        .upsert({ 
+          platform_source: target.platform, 
+          last_attempt_at: now.toISOString() 
+        }, { onConflict: 'platform_source' });
+
       try {
         const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
           method: 'POST',
@@ -88,42 +115,52 @@ Deno.serve(async (req) => {
             formats: ['extract'],
             extract: {
               schema: extractionSchema,
-              prompt: 'Extract all events listed on this page including their name, date, venue, city, category, price, description, and image URL.'
+              prompt: 'Extract all events listed on this page including their name, date, venue, city, category, price, description, image URL, event URL, and whether sold out.'
             },
             waitFor: 3000,
           }),
         });
 
         const data = await response.json();
-        console.log(`Response from ${target.city}:`, JSON.stringify(data).substring(0, 500));
+        console.log(`Response from ${target.platform} ${target.city}:`, JSON.stringify(data).substring(0, 500));
 
         if (data.success && data.data?.extract?.events) {
           const events = data.data.extract.events;
-          console.log(`Found ${events.length} events from ${target.city}`);
+          console.log(`Found ${events.length} events from ${target.platform} ${target.city}`);
+          
           events.forEach((event: any) => {
             if (event.name) {
-              scrapedEvents.push(parseEvent(event, target.city));
+              const parsed = parseEvent(event, target.city, target.platform, target.url);
+              scrapedEvents.push(parsed);
+              platformEventCounts[target.platform] = (platformEventCounts[target.platform] || 0) + 1;
             }
           });
         } else if (data.data?.extract) {
-          // Try alternate structure
           const extract = data.data.extract;
           if (Array.isArray(extract)) {
             extract.forEach((event: any) => {
               if (event.name) {
-                scrapedEvents.push(parseEvent(event, target.city));
+                const parsed = parseEvent(event, target.city, target.platform, target.url);
+                scrapedEvents.push(parsed);
+                platformEventCounts[target.platform] = (platformEventCounts[target.platform] || 0) + 1;
               }
             });
           }
         }
       } catch (error) {
         console.error(`Error scraping ${target.url}:`, error);
+        platformResults.push({
+          platform: target.platform,
+          eventsScraped: 0,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
       }
     }
 
     console.log(`Total events scraped: ${scrapedEvents.length}`);
 
-    // If no events were scraped, fallback to markdown parsing
+    // Fallback to markdown parsing if no structured data
     if (scrapedEvents.length === 0) {
       console.log('No structured data found, trying markdown extraction...');
       
@@ -146,11 +183,11 @@ Deno.serve(async (req) => {
           
           if (data.success && data.data?.markdown) {
             const markdown = data.data.markdown;
-            console.log(`Got markdown from ${target.city}, length: ${markdown.length}`);
+            console.log(`Got markdown from ${target.platform} ${target.city}, length: ${markdown.length}`);
             
-            // Parse events from markdown using simple pattern matching
-            const eventMatches = parseEventsFromMarkdown(markdown, target.city);
+            const eventMatches = parseEventsFromMarkdown(markdown, target.city, target.platform);
             scrapedEvents.push(...eventMatches);
+            platformEventCounts[target.platform] = (platformEventCounts[target.platform] || 0) + eventMatches.length;
           }
         } catch (error) {
           console.error(`Error with markdown scrape for ${target.url}:`, error);
@@ -160,47 +197,118 @@ Deno.serve(async (req) => {
 
     console.log(`Final events count: ${scrapedEvents.length}`);
 
+    // Fallback to sample events
     if (scrapedEvents.length === 0) {
-      // Add sample events for demonstration
       console.log('Adding sample events for demonstration...');
       const sampleEvents = generateSampleIndianEvents();
       scrapedEvents.push(...sampleEvents);
+      platformEventCounts['manual'] = sampleEvents.length;
     }
 
-    // Clear existing events and insert new ones
-    console.log('Clearing existing events...');
-    const { error: deleteError } = await supabase
+    // PHASE 1: Mark expired events (past date) as inactive
+    const { error: expireError } = await supabase
       .from('events')
-      .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000');
+      .update({ is_active: false, status: 'expired' })
+      .lt('date', now.toISOString());
 
-    if (deleteError) {
-      console.error('Error deleting existing events:', deleteError);
+    if (expireError) {
+      console.error('Error marking expired events:', expireError);
     }
 
-    // Insert scraped events
-    console.log('Inserting events...');
-    const { data: insertedEvents, error: insertError } = await supabase
+    // PHASE 1: Deduplicate - Use upsert with conflict handling
+    console.log('Upserting events with deduplication...');
+    let insertedCount = 0;
+    let updatedCount = 0;
+
+    for (const event of scrapedEvents) {
+      // Check if event already exists
+      const { data: existingEvent } = await supabase
+        .from('events')
+        .select('id')
+        .eq('name', event.name)
+        .eq('city', event.city)
+        .eq('platform_source', event.platform_source)
+        .gte('date', new Date(event.date).toISOString().split('T')[0])
+        .lte('date', new Date(new Date(event.date).getTime() + 86400000).toISOString())
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (existingEvent) {
+        // Update existing event
+        const { error: updateError } = await supabase
+          .from('events')
+          .update({
+            venue: event.venue,
+            price: event.price,
+            description: event.description,
+            image_url: event.image_url,
+            event_url: event.event_url,
+            last_scraped_at: event.last_scraped_at,
+            status: event.status,
+            high_demand: event.high_demand,
+          })
+          .eq('id', existingEvent.id);
+
+        if (!updateError) updatedCount++;
+      } else {
+        // Insert new event
+        const { error: insertError } = await supabase
+          .from('events')
+          .insert(event);
+
+        if (!insertError) insertedCount++;
+      }
+    }
+
+    console.log(`Inserted: ${insertedCount}, Updated: ${updatedCount}`);
+
+    // PHASE 5: Update scrape_health for each platform
+    for (const [platform, count] of Object.entries(platformEventCounts)) {
+      await supabase
+        .from('scrape_health')
+        .upsert({
+          platform_source: platform,
+          last_successful_scrape: now.toISOString(),
+          last_attempt_at: now.toISOString(),
+          events_count: count,
+          status: 'healthy',
+          error_message: null,
+        }, { onConflict: 'platform_source' });
+
+      platformResults.push({
+        platform,
+        eventsScraped: count,
+        success: true
+      });
+    }
+
+    // PHASE 2: Update event statuses based on ticket_release_time
+    const { error: statusUpdateError } = await supabase
       .from('events')
-      .insert(scrapedEvents)
-      .select();
+      .update({ status: 'live' })
+      .eq('status', 'coming_soon')
+      .lte('ticket_release_time', now.toISOString())
+      .eq('is_active', true);
 
-    if (insertError) {
-      console.error('Error inserting events:', insertError);
-      return new Response(
-        JSON.stringify({ success: false, error: insertError.message }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (statusUpdateError) {
+      console.error('Error updating event statuses:', statusUpdateError);
     }
 
-    console.log(`Successfully inserted ${insertedEvents?.length || 0} events`);
+    // Get final count
+    const { count: totalEvents } = await supabase
+      .from('events')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_active', true);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: `Successfully stored ${insertedEvents?.length || 0} events`,
-        eventsCount: insertedEvents?.length || 0,
-        events: insertedEvents
+        message: `Scraped ${insertedCount} new events, updated ${updatedCount} existing events`,
+        eventsCount: totalEvents || 0,
+        inserted: insertedCount,
+        updated: updatedCount,
+        platformResults,
+        lastScrapedAt: now.toISOString()
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -208,6 +316,25 @@ Deno.serve(async (req) => {
   } catch (error: unknown) {
     console.error('Error in scrape-events function:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+    
+    // Update scrape_health with error
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const supabase = createClient(supabaseUrl, supabaseKey);
+      
+      await supabase
+        .from('scrape_health')
+        .update({ 
+          status: 'unhealthy', 
+          error_message: errorMessage,
+          last_attempt_at: new Date().toISOString()
+        })
+        .in('platform_source', ['BookMyShow', 'Insider.in']);
+    } catch (e) {
+      console.error('Failed to update scrape_health:', e);
+    }
+
     return new Response(
       JSON.stringify({ success: false, error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -215,25 +342,40 @@ Deno.serve(async (req) => {
   }
 });
 
-function parseEvent(event: any, defaultCity: string): ScrapedEvent {
+function parseEvent(event: any, defaultCity: string, platform: string, sourceUrl: string): ScrapedEvent {
+  const now = new Date();
   let eventDate = new Date();
   eventDate.setMonth(eventDate.getMonth() + 1);
   
   if (event.date) {
     const parsedDate = new Date(event.date);
-    if (!isNaN(parsedDate.getTime()) && parsedDate > new Date()) {
+    if (!isNaN(parsedDate.getTime()) && parsedDate > now) {
       eventDate = parsedDate;
     }
   }
 
+  // Calculate ticket release time
   const releaseDate = new Date(eventDate);
   const daysBeforeEvent = Math.floor(Math.random() * 5) + 2;
   releaseDate.setDate(releaseDate.getDate() - daysBeforeEvent);
   
-  if (releaseDate < new Date()) {
+  // If release time is in the past, set it to near future for testing
+  if (releaseDate < now) {
     releaseDate.setTime(Date.now() + (Math.floor(Math.random() * 30) + 5) * 60 * 1000);
   }
 
+  // PHASE 2: Determine status based on real conditions
+  let status: 'coming_soon' | 'live' | 'sold_out' | 'expired' = 'coming_soon';
+  
+  if (eventDate < now) {
+    status = 'expired';
+  } else if (event.sold_out === true) {
+    status = 'sold_out';
+  } else if (releaseDate <= now) {
+    status = 'live';
+  }
+
+  // Parse price
   let price = 500;
   if (event.price) {
     const priceNum = parseInt(String(event.price).replace(/[^\d]/g, ''));
@@ -242,6 +384,7 @@ function parseEvent(event: any, defaultCity: string): ScrapedEvent {
     }
   }
 
+  // Map category
   const categoryMap: { [key: string]: string } = {
     'concert': 'Concert',
     'music': 'Concert',
@@ -280,26 +423,27 @@ function parseEvent(event: any, defaultCity: string): ScrapedEvent {
     image_url: event.image_url || null,
     high_demand: Math.random() > 0.7,
     ticket_release_time: releaseDate.toISOString(),
+    platform_source: platform,
+    event_url: event.event_url || sourceUrl,
+    last_scraped_at: new Date().toISOString(),
+    is_active: status !== 'expired',
+    status: status,
   };
 }
 
-function parseEventsFromMarkdown(markdown: string, city: string): ScrapedEvent[] {
+function parseEventsFromMarkdown(markdown: string, city: string, platform: string): ScrapedEvent[] {
   const events: ScrapedEvent[] = [];
-  
-  // Look for event-like patterns in markdown
   const lines = markdown.split('\n');
   let currentEvent: any = {};
   
   for (const line of lines) {
-    // Look for headings that might be event names
     if (line.startsWith('##') || line.startsWith('###')) {
       if (currentEvent.name) {
-        events.push(parseEvent(currentEvent, city));
+        events.push(parseEvent(currentEvent, city, platform, ''));
       }
       currentEvent = { name: line.replace(/^#+\s*/, '').trim() };
     }
     
-    // Look for date patterns
     const dateMatch = line.match(/(\d{1,2})\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*(\d{4})?/i);
     if (dateMatch && currentEvent.name) {
       const month = dateMatch[2];
@@ -308,18 +452,22 @@ function parseEventsFromMarkdown(markdown: string, city: string): ScrapedEvent[]
       currentEvent.date = `${year}-${getMonthNumber(month)}-${day.padStart(2, '0')}`;
     }
     
-    // Look for price patterns
     const priceMatch = line.match(/₹\s*(\d+)/);
     if (priceMatch && currentEvent.name) {
       currentEvent.price = parseInt(priceMatch[1]);
     }
+
+    // Check for sold out
+    if (line.toLowerCase().includes('sold out') && currentEvent.name) {
+      currentEvent.sold_out = true;
+    }
   }
   
   if (currentEvent.name) {
-    events.push(parseEvent(currentEvent, city));
+    events.push(parseEvent(currentEvent, city, platform, ''));
   }
   
-  return events.slice(0, 10); // Limit to 10 events per source
+  return events.slice(0, 10);
 }
 
 function getMonthNumber(month: string): string {
@@ -458,23 +606,28 @@ function generateSampleIndianEvents(): ScrapedEvent[] {
   ];
 
   return events.map((event, index) => {
-    // Stagger event dates over the next 3 months
     const eventDate = new Date(now);
-    eventDate.setDate(eventDate.getDate() + (index * 7) + 14); // 2 weeks to 3 months out
+    eventDate.setDate(eventDate.getDate() + (index * 7) + 14);
     
-    // Release time: between 5 minutes and 7 days before event
     const releaseDate = new Date(now);
     if (index < 3) {
-      // First 3 events release soon for testing auto-book
+      // First 3 events release soon for testing
       releaseDate.setMinutes(releaseDate.getMinutes() + 5 + (index * 5));
     } else {
       releaseDate.setDate(releaseDate.getDate() + (index * 2));
     }
 
+    const status: 'coming_soon' | 'live' = releaseDate <= now ? 'live' : 'coming_soon';
+
     return {
       ...event,
       date: eventDate.toISOString(),
       ticket_release_time: releaseDate.toISOString(),
+      platform_source: 'manual',
+      event_url: null,
+      last_scraped_at: now.toISOString(),
+      is_active: true,
+      status: status,
     };
   });
 }
