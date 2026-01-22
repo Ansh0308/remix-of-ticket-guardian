@@ -1,12 +1,15 @@
+'use client';
+
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, SlidersHorizontal, Sparkles, Calendar, TrendingUp, RefreshCw, Loader2 } from 'lucide-react';
+import { Search, Filter, SlidersHorizontal, Sparkles, Calendar, TrendingUp, RefreshCw, Loader2, AlertCircle } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import EventCard from '@/components/events/EventCard';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useEvents } from '@/hooks/useEvents';
+import { useScrapeHealth, formatTimeAgo, getHealthStatusInfo } from '@/hooks/useScrapeHealth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
@@ -20,6 +23,8 @@ const Home: React.FC = () => {
   const queryClient = useQueryClient();
 
   const { data: events = [], isLoading } = useEvents();
+  // PHASE 5: Monitor scraper health
+  const { data: scrapeHealth = [], isLoading: isLoadingHealth } = useScrapeHealth();
 
   const categories = ['All', 'Concert', 'Cricket', 'Comedy', 'Festival', 'Theatre', 'Workshop', 'Sports'];
   const statuses = ['All', 'Coming Soon', 'Live'];
@@ -75,6 +80,17 @@ const Home: React.FC = () => {
   const comingSoonCount = events.filter(e => e.status === 'coming_soon').length;
   const highDemandCount = events.filter(e => e.high_demand).length;
 
+  // PHASE 5: Get most recent scrape info for badge
+  const lastScrapedHealth = scrapeHealth.length > 0 ? scrapeHealth[0] : null;
+  const overallHealth = scrapeHealth.length > 0
+    ? scrapeHealth.some(h => h.status === 'unhealthy')
+      ? 'unhealthy'
+      : scrapeHealth.some(h => h.status === 'warning')
+        ? 'warning'
+        : 'healthy'
+    : 'unknown';
+  const healthInfo = getHealthStatusInfo(overallHealth as any, lastScrapedHealth?.error_message);
+
   return (
     <PageLayout>
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -94,6 +110,17 @@ const Home: React.FC = () => {
                 <Sparkles className="w-4 h-4 text-primary" />
                 <span className="text-sm font-medium text-primary">Discover Events</span>
               </motion.div>
+              {/* PHASE 5: Data freshness badge */}
+              {!isLoadingHealth && lastScrapedHealth && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`inline-flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium mb-2 ml-0 md:ml-3 ${healthInfo.color}`}
+                >
+                  <span className="text-lg">{healthInfo.icon}</span>
+                  <span>Data updated {formatTimeAgo(lastScrapedHealth.last_successful_scrape)}</span>
+                </motion.div>
+              )}
               <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-2">
                 Explore <span className="gradient-text">Events</span>
               </h1>
@@ -103,7 +130,7 @@ const Home: React.FC = () => {
               <Button
                 onClick={handleScrapeEvents}
                 disabled={isScraping}
-                className="mt-4 gap-2"
+                className="mt-4 gap-2 bg-transparent"
                 variant="outline"
               >
                 {isScraping ? (

@@ -26,6 +26,10 @@ export interface Event {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // PHASE 1: Data normalization fields
+  event_id?: string; // User's own UUID
+  // Calculated at runtime
+  scraped_age_minutes?: number;
 }
 
 export interface AutoBook {
@@ -36,7 +40,7 @@ export interface AutoBook {
   seat_type: 'general' | 'premium' | 'vip';
   max_budget: number;
   status: 'active' | 'success' | 'failed';
-  failure_reason: string | null;
+  failure_reason: AutoBookFailureReason;
   created_at: string;
   updated_at: string;
   event?: Event;
