@@ -54,21 +54,28 @@ export const useDryRun = () => {
       const now = new Date();
       const newReleaseTime = new Date(now.getTime() + offsetMinutes * 60000);
 
-      // Create cloned event
-      const clonedEvent = {
-        ...originalEvent,
-        id: undefined, // Let Supabase generate new ID
+      // Create cloned event - only copy fields we need, omit id to let Supabase generate it
+      const clonedEvent: any = {
         is_test_event: true,
         cloned_from_id: eventId,
         original_release_time: originalEvent.ticket_release_time,
         ticket_release_time: newReleaseTime.toISOString(),
         name: `[TEST] ${originalEvent.name} (${offsetMinutes}m)`,
         test_created_at: now.toISOString(),
-        created_at: now.toISOString(),
-        updated_at: now.toISOString(),
+        // Copy all other fields from original except id
+        category: originalEvent.category,
+        description: originalEvent.description,
+        date: originalEvent.date,
+        city: originalEvent.city,
+        venue: originalEvent.venue,
+        price: originalEvent.price,
+        high_demand: originalEvent.high_demand,
+        image_url: originalEvent.image_url,
+        status: originalEvent.status,
+        event_url: originalEvent.event_url,
       };
 
-      // Insert cloned event
+      // Insert cloned event - Supabase will auto-generate the id
       const { data: inserted, error: insertError } = await supabase
         .from('events')
         .insert([clonedEvent])
