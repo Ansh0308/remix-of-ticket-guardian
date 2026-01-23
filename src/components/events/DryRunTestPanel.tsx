@@ -27,8 +27,30 @@ export const DryRunTestPanel: React.FC<DryRunTestPanelProps> = ({
   const [showDryRunForm, setShowDryRunForm] = useState(false);
   const [autoBookId, setAutoBookId] = useState('');
   const [dryRunResult, setDryRunResult] = useState<any>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   const { cloneEventForTesting, runDryRun, isCloning, isRunning } = useDryRun();
+
+  const handleTriggerProcessing = async () => {
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/api/test-auto-books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to trigger processing');
+      }
+
+      const data = await response.json();
+      console.log('Auto-books processed:', data);
+    } catch (error: any) {
+      console.error('Error triggering processing:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleCloneEvent = async () => {
     const offset = parseInt(offsetMinutes) || 2;
@@ -212,8 +234,44 @@ export const DryRunTestPanel: React.FC<DryRunTestPanelProps> = ({
             </div>
           </div>
 
-          <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded">
-            <strong>Note:</strong> Dry-run simulations don't modify your auto-book status. Use this to test the exact auto-booking flow safely.
+          {/* Step 3: Trigger Processing */}
+          <div className="bg-white dark:bg-slate-950 rounded-lg p-4 border border-amber-200 dark:border-amber-900">
+            <h4 className="font-medium text-foreground mb-3 flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              Step 3: Trigger Auto-Book Processing
+            </h4>
+            <p className="text-sm text-muted-foreground mb-3">
+              After your test event's release time passes (or immediately if already past), click this to process all active auto-books:
+            </p>
+            <Button
+              onClick={handleTriggerProcessing}
+              disabled={isProcessing}
+              className="w-full bg-transparent"
+              size="sm"
+              variant="outline"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4 mr-2" />
+                  Trigger Auto-Book Processing
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded space-y-2">
+            <div><strong>How it works:</strong></div>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>Clone an event (sets release time to NOW + 2 minutes)</li>
+              <li>Create auto-book for the cloned event</li>
+              <li>Wait 2+ minutes, then click "Trigger Auto-Book Processing"</li>
+              <li>Check "My Bookings" to see the result</li>
+            </ol>
           </div>
         </div>
       </Card>

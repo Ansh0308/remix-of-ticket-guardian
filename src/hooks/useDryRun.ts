@@ -117,27 +117,89 @@ export const useDryRun = () => {
   const runDryRun = async (autoBookId: string): Promise<DryRunResult | null> => {
     setIsRunning(true);
     try {
-      const { data, error } = await supabase.functions.invoke('process-auto-books', {
-        body: {
-          dryRun: true,
-          autoBookId,
-        },
-      });
+      // Fetch auto-book
+      const { data: autoBook, error: autoBookError } = await supabase
+        .from('auto_books')
+        .select('*, events(*)')
+        .eq('id', autoBookId)
+        .single();
 
-      if (error) throw error;
-
-      if (data?.results && data.results.length > 0) {
-        const result = data.results[0];
-        
-        toast({
-          title: 'Dry-Run Complete',
-          description: result.message,
-        });
-
-        return result;
+      if (autoBookError || !autoBook) {
+        throw new Error('Auto-book not found');
       }
 
-      throw new Error('No results returned from dry-run');
+      const event = autoBook.events;
+      const now = new Date();
+      const releaseTime = new Date(event.ticket_release_time);
+      const timeSinceRelease = now.getTime() - releaseTime.getTime();
+      const totalCost = event.price * autoBook.quantity;
+
+      let simulatedStatus: 'success' | 'failed' = 'failed';
+      let simulatedFailureReason: string | null = null;
+      let simulatedMessage: string = '';
+
+      // DETERMINISTIC CHECKS (exactly same logic as real processing)
+      const withinBudget = totalCost <= autoBook.max_budget;
+
+      if (!withinBudget) {
+        simulatedStatus = 'failed';
+        simulatedFailureReason = 'price_exceeded_budget';
+        simulatedMessage = `Ticket price ₹${event.price} per ticket × ${autoBook.quantity} = ₹${totalCost}, exceeds your budget of ₹${autoBook.max_budget}.`;
+      } else if (timeSinceRelease > 5 * 60 * 1000) {
+        // More than 5 minutes since release
+        simulatedStatus = 'failed';
+        simulatedFailureReason = 'booking_window_missed';
+        simulatedMessage = `Ticket release was ${Math.round(timeSinceRelease / 60000)} minutes ago. Booking window is typically 5 minutes or less for high-demand events.`;
+      } else {
+        // Within 5 minutes and within budget
+        simulatedStatus = 'success';
+        simulatedFailureReason = null;
+        simulatedMessage = `Tickets matching your preferences were AVAILABLE at release time (${autoBook.quantity} × ${autoBook.seat_type}, ₹${totalCost}).`;
+      }
+
+      // Store dry-run results WITHOUT changing actual status
+      const { error: updateError } = await supabase
+        .from('auto_books')
+        .update({
+          is_dry_run: true,
+          dry_run_results: {
+            simulatedStatus,
+            simulatedFailureReason,
+            simulatedMessage,
+            dryRunTimestamp: now.toISOString(),
+            eventPrice: event.price,
+            userBudget: autoBook.max_budget,
+            quantity: autoBook.quantity,
+            totalCost,
+            timeSinceRelease: Math.round(timeSinceRelease / 1000),
+          },
+          dry_run_executed_at: now.toISOString(),
+        })
+        .eq('id', autoBookId);
+
+      if (updateError) {
+        throw new Error(`Failed to store dry-run results: ${updateError.message}`);
+      }
+
+      const result: DryRunResult = {
+        autoBookId,
+        status: simulatedStatus,
+        failureReason: simulatedFailureReason,
+        message: `[DRY-RUN] ${simulatedMessage}`,
+        eventName: event.name,
+        eventId: event.id,
+        quantity: autoBook.quantity,
+        seatType: autoBook.seat_type,
+        totalCost,
+        userId: autoBook.user_id,
+      };
+
+      toast({
+        title: 'Dry-Run Complete',
+        description: result.message,
+      });
+
+      return result;
     } catch (error: any) {
       console.error('Error running dry-run:', error);
       toast({
