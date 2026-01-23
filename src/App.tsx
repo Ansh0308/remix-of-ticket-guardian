@@ -14,30 +14,33 @@ import SellTicket from "./pages/SellTicket";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import NotFound from "./pages/NotFound";
+import RealtimeAutoBookProvider from "./context/RealtimeAutoBookContext";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/home" element={<Home />} />
-            <Route path="/event/:id" element={<EventDetail />} />
-            <Route path="/autobook/:eventId" element={<AutoBookSetup />} />
-            <Route path="/my-bookings" element={<MyBookings />} />
-            <Route path="/resale" element={<Resale />} />
-            <Route path="/sell" element={<SellTicket />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <RealtimeAutoBookProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/home" element={<Home />} />
+              <Route path="/event/:id" element={<EventDetail />} />
+              <Route path="/autobook/:eventId" element={<AutoBookSetup />} />
+              <Route path="/my-bookings" element={<MyBookings />} />
+              <Route path="/resale" element={<Resale />} />
+              <Route path="/sell" element={<SellTicket />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </RealtimeAutoBookProvider>
     </AuthProvider>
   </QueryClientProvider>
 );
