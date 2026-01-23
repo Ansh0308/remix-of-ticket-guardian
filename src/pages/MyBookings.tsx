@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -23,7 +25,7 @@ const MyBookings: React.FC = () => {
   const cancelAutoBook = useCancelAutoBook();
 
   const handleProcessAutoBooks = async () => {
-    // Get all active bookings event IDs
+    // Get all active bookings
     const activeBookings = allBookings.filter(b => b.status === 'active');
     if (activeBookings.length === 0) {
       toast({
@@ -33,31 +35,35 @@ const MyBookings: React.FC = () => {
       });
       return;
     }
-
-    const eventIds = [...new Set(activeBookings.map(b => b.event_id))];
     
     setIsProcessing(true);
     try {
-      const { data, error } = await supabase.functions.invoke('process-auto-books', {
-        body: { testMode: true, eventIds }
+      // Call the working API endpoint
+      const response = await fetch('/api/test-auto-books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
       });
 
-      if (error) throw error;
+      if (!response.ok) {
+        throw new Error('Failed to process auto-books');
+      }
+
+      const data = await response.json();
 
       // Refresh the bookings list
       await queryClient.invalidateQueries({ queryKey: ['autoBooks'] });
 
       toast({
         title: "Processing Complete!",
-        description: `Processed ${data.processed} auto-book(s). Success: ${data.results?.success || 0}, Failed: ${data.results?.failed || 0}`,
+        description: `Processed ${data.processed} auto-book(s). Success: ${data.success || 0}, Failed: ${data.failed || 0}`,
       });
 
-      // Show details for each booking
-      data.results?.details?.forEach((detail: { eventName: string; status: string; reason?: string }) => {
+      // Show details for each result
+      data.results?.forEach((result: any) => {
         toast({
-          title: detail.eventName,
-          description: `${detail.status.toUpperCase()}: ${detail.reason}`,
-          variant: detail.status === 'success' ? 'default' : 'destructive',
+          title: result.eventName,
+          description: result.message,
+          variant: result.status === 'success' ? 'default' : 'destructive',
         });
       });
     } catch (error) {
@@ -160,7 +166,7 @@ const MyBookings: React.FC = () => {
           {/* Event Image */}
           {booking.event && (
             <img
-              src={eventImage}
+              src={eventImage || "/placeholder.svg"}
               alt={booking.event.name}
               className="w-full sm:w-24 h-32 sm:h-24 rounded-lg object-cover"
             />

@@ -1,13 +1,13 @@
 'use client';
 
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useEffect } from 'react';
 import { useRealtimeAutoBook } from '@/hooks/useRealtimeAutoBook';
 
 interface RealtimeAutoBookContextType {
-  // Context for managing realtime auto-book processing
+  isInitialized: boolean;
 }
 
-const RealtimeAutoBookContext = React.createContext<RealtimeAutoBookContextType>({});
+const RealtimeAutoBookContext = React.createContext<RealtimeAutoBookContextType>({ isInitialized: false });
 
 export const useRealtimeAutoBookContext = () => {
   return React.useContext(RealtimeAutoBookContext);
@@ -18,10 +18,23 @@ interface RealtimeAutoBookProviderProps {
 }
 
 const RealtimeAutoBookProvider: React.FC<RealtimeAutoBookProviderProps> = ({ children }) => {
+  const [isInitialized, setIsInitialized] = React.useState(false);
+  
   // Initialize real-time auto-book listener
-  const { processAutoBooks } = useRealtimeAutoBook();
+  const { setupRealtimeListener } = useRealtimeAutoBook();
 
-  const value: RealtimeAutoBookContextType = {};
+  useEffect(() => {
+    // Setup real-time listener on mount
+    const cleanup = setupRealtimeListener();
+    setIsInitialized(true);
+    console.log('[RealtimeAutoBook] Context initialized');
+
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [setupRealtimeListener]);
+
+  const value: RealtimeAutoBookContextType = { isInitialized };
 
   return (
     <RealtimeAutoBookContext.Provider value={value}>

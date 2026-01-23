@@ -196,8 +196,11 @@ export function useRealtimeAutoBook() {
     return () => clearInterval(intervalId);
   }, [processAutoBooks]);
 
-  // Initialize on mount
-  useEffect(() => {
+  // Initialize on mount (only if called explicitly, not in useEffect here)
+  // This allows the context to manage initialization
+
+  // Return both setup function and processor
+  const initialize = useCallback(() => {
     setupRealtimeListener();
     const cleanup = setupPeriodicCheck();
 
@@ -209,5 +212,8 @@ export function useRealtimeAutoBook() {
     };
   }, [setupRealtimeListener, setupPeriodicCheck]);
 
-  return { processAutoBooks };
+  return { 
+    processAutoBooks,
+    setupRealtimeListener: initialize 
+  };
 }
