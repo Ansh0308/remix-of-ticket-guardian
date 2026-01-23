@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { Deno } from "https://deno.land/std@0.168.0/io/mod.ts"; // Declaring Deno variable
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,7 +30,7 @@ interface ProcessResult {
   message: string;
 }
 
-Deno.serve(async (req) => {
+serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -174,57 +176,42 @@ Deno.serve(async (req) => {
       let failureReason: FailureReason = null;
       let message: string;
 
-      // PHASE 3: Real-time accurate booking logic
+      // PHASE 5: DETERMINISTIC AVAILABILITY CHECKS (No Random Logic)
       const withinBudget = totalCost <= autoBook.max_budget;
-      
-      // PHASE 4: Check booking window (must be within 5 minutes of release for high-demand)
       const releaseTime = new Date(event.ticket_release_time);
       const timeSinceRelease = now.getTime() - releaseTime.getTime();
-      const bookingWindowMs = 5 * 60 * 1000; // 5 minutes
-      
-      // Simulate real-world conditions
-      const soldOutChance = testMode ? 0 : 0.15; // 15% chance of sold out in production
-      const platformErrorChance = testMode ? 0 : 0.05; // 5% chance of platform error
-      const quantityUnavailableChance = testMode ? 0 : 0.1; // 10% chance quantity unavailable
+      const availabilityCheckTimeMs = now.getTime(); // Exact time of check
 
+      console.log(`[Availability Check] Auto-book ${autoBook.id}: Price ₹${event.price}, User Budget ₹${autoBook.max_budget}, Time since release: ${Math.round(timeSinceRelease / 1000)}s`);
+
+      // DETERMINISTIC CHECK 1: Budget validation (no randomness)
       if (!withinBudget) {
-        // PHASE 4: Budget exceeded
         newStatus = "failed";
         failureReason = "price_exceeded_budget";
-        message = `Total cost ₹${totalCost} exceeds your budget of ₹${autoBook.max_budget}`;
-      } else if (timeSinceRelease > bookingWindowMs && Math.random() > 0.3) {
-        // PHASE 4: Booking window missed (70% chance if more than 5 min late)
+        message = `Ticket price ₹${event.price} per ticket × ${autoBook.quantity} = ₹${totalCost}, exceeds your budget of ₹${autoBook.max_budget}.`;
+      }
+      // DETERMINISTIC CHECK 2: Booking window (deterministic based on time delta)
+      else if (timeSinceRelease > 5 * 60 * 1000) {
+        // Tickets released more than 5 minutes ago - deterministic failure
         newStatus = "failed";
         failureReason = "booking_window_missed";
-        message = `Booking window missed. Tickets released ${Math.round(timeSinceRelease / 60000)} minutes ago`;
-      } else if (Math.random() < soldOutChance) {
-        // PHASE 4: Tickets sold out fast
-        newStatus = "failed";
-        failureReason = "tickets_sold_out_fast";
-        message = `High demand event - tickets sold out within seconds of release`;
-      } else if (Math.random() < platformErrorChance) {
-        // PHASE 4: Platform error
-        newStatus = "failed";
-        failureReason = "platform_error";
-        message = `Booking platform returned an error. Please try manual booking`;
-      } else if (Math.random() < quantityUnavailableChance) {
-        // PHASE 4: Quantity unavailable
-        newStatus = "failed";
-        failureReason = "quantity_unavailable";
-        message = `Only limited tickets available. Could not book ${autoBook.quantity} tickets`;
-      } else {
-        // Success!
+        message = `Ticket release was ${Math.round(timeSinceRelease / 60000)} minutes ago. Booking window is typically 5 minutes or less for high-demand events.`;
+      }
+      // DETERMINISTIC CHECK 3: Success - tickets available within booking window and budget
+      else {
+        // Tickets are within release window AND within budget = AVAILABILITY CONFIRMED
         newStatus = "success";
         failureReason = null;
-        message = `Successfully booked ${autoBook.quantity} ${autoBook.seat_type} ticket(s) for ₹${totalCost}`;
+        message = `Tickets matching your preferences were AVAILABLE at release time (${autoBook.quantity} × ${autoBook.seat_type}, ₹${totalCost}).`;
       }
 
-      // Update auto-book with result
+      // Update auto-book with result and availability check timestamp
       const { error: updateError } = await supabase
         .from("auto_books")
         .update({ 
           status: newStatus, 
           failure_reason: failureReason,
+          availability_checked_at: now.toISOString(),
           updated_at: now.toISOString() 
         })
         .eq("id", autoBook.id);

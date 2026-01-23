@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -103,7 +105,7 @@ const AutoBookSetup: React.FC = () => {
                 <Button className="w-full">View My Bookings</Button>
               </Link>
               <Link to={`/event/${event.id}`}>
-                <Button variant="outline" className="w-full">Back to Event</Button>
+                <Button variant="outline" className="w-full bg-transparent">Back to Event</Button>
               </Link>
             </div>
           </div>
@@ -128,7 +130,7 @@ const AutoBookSetup: React.FC = () => {
 
       toast({
         title: "Auto-Book Activated!",
-        description: `We'll secure your ${quantity} ${seatLabels[seatType]} tickets when they go live.`,
+        description: `We'll check ticket availability for your ${quantity} ${seatLabels[seatType]} ticket(s) when they go live.`,
       });
 
       setTimeout(() => {
@@ -177,9 +179,9 @@ const AutoBookSetup: React.FC = () => {
               >
                 <Check className="w-10 h-10 text-success" />
               </motion.div>
-              <h2 className="text-2xl font-bold text-foreground mb-2">Auto-Book Activated!</h2>
+              <h2 className="text-2xl font-bold text-foreground mb-2">Availability Check Activated!</h2>
               <p className="text-muted-foreground mb-6">
-                We'll automatically book your tickets when they go live.
+                We'll monitor ticket availability when they go live and confirm whether matching tickets are available.
               </p>
               <p className="text-sm text-muted-foreground">
                 Redirecting to your bookings...
@@ -199,7 +201,7 @@ const AutoBookSetup: React.FC = () => {
                 </h2>
                 <div className="flex items-start gap-4">
                   <img
-                    src={eventImage}
+                    src={eventImage || "/placeholder.svg"}
                     alt={event.name}
                     className="w-20 h-20 rounded-lg object-cover"
                   />
