@@ -1,9 +1,12 @@
+'use client';
+
 import React from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Calendar, MapPin, Clock, Zap, ArrowLeft, ShoppingCart, AlertCircle } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import StatusBadge from '@/components/events/StatusBadge';
+import { DryRunTestPanel } from '@/components/events/DryRunTestPanel';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -102,7 +105,7 @@ const EventDetail: React.FC = () => {
             {/* Event Image */}
             <div className="relative rounded-2xl overflow-hidden">
               <img
-                src={eventImage}
+                src={eventImage || "/placeholder.svg"}
                 alt={event.name}
                 className="w-full h-64 md:h-96 object-cover"
               />
@@ -220,7 +223,7 @@ const EventDetail: React.FC = () => {
 
                 {/* View Resale */}
                 <Link to="/resale" className="block">
-                  <Button variant="outline" className="w-full h-12">
+                  <Button variant="outline" className="w-full h-12 bg-transparent">
                     <ShoppingCart className="w-4 h-4 mr-2" />
                     View Resale Tickets
                   </Button>
@@ -236,6 +239,14 @@ const EventDetail: React.FC = () => {
             </div>
           </motion.div>
         </div>
+
+        {/* Developer Testing Panel */}
+        <DryRunTestPanel
+          eventId={event.id}
+          eventName={event.name}
+          currentReleaseTime={event.ticket_release_time}
+          isDev={true}
+        />
       </div>
     </PageLayout>
   );

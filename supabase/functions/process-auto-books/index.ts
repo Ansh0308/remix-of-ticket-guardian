@@ -43,13 +43,17 @@ serve(async (req) => {
     console.log("Starting auto-book processing...");
 
     let testMode = false;
+    let dryRun = false;
+    let dryRunAutoBookId: string | null = null;
     let eventIdsToProcess: string[] = [];
     
     try {
       const body = await req.json();
       testMode = body?.testMode === true;
+      dryRun = body?.dryRun === true;
+      dryRunAutoBookId = body?.autoBookId || null;
       eventIdsToProcess = body?.eventIds || [];
-      console.log(`Request params - testMode: ${testMode}, eventIds: ${eventIdsToProcess.join(', ')}`);
+      console.log(`Request params - testMode: ${testMode}, dryRun: ${dryRun}, autoBookId: ${dryRunAutoBookId}, eventIds: ${eventIdsToProcess.join(', ')}`);
     } catch {
       console.log("No request body, using defaults");
     }
@@ -175,6 +179,7 @@ serve(async (req) => {
       let newStatus: "success" | "failed" = "failed";
       let failureReason: FailureReason = null;
       let message: string;
+      let updateError: any = null; // Declare updateError variable
 
       // PHASE 5: DETERMINISTIC AVAILABILITY CHECKS (No Random Logic)
       const withinBudget = totalCost <= autoBook.max_budget;
@@ -205,67 +210,102 @@ serve(async (req) => {
         message = `Tickets matching your preferences were AVAILABLE at release time (${autoBook.quantity} × ${autoBook.seat_type}, ₹${totalCost}).`;
       }
 
-      // Update auto-book with result and availability check timestamp
-      const { error: updateError } = await supabase
-        .from("auto_books")
-        .update({ 
-          status: newStatus, 
-          failure_reason: failureReason,
-          availability_checked_at: now.toISOString(),
-          updated_at: now.toISOString() 
-        })
-        .eq("id", autoBook.id);
+      // DRY-RUN MODE: Store results without updating status
+      if (dryRun && dryRunAutoBookId === autoBook.id) {
+        console.log(`[DRY-RUN] Simulated result for auto-book ${autoBook.id}: ${newStatus}`);
+        const dryRunData = {
+          simulatedStatus: newStatus,
+          simulatedFailureReason: failureReason,
+          simulatedMessage: message,
+          dryRunTimestamp: now.toISOString(),
+          eventPrice: event.price,
+          userBudget: autoBook.max_budget,
+          quantity: autoBook.quantity,
+          totalCost,
+          timeSinceRelease: Math.round(timeSinceRelease / 1000),
+        };
 
-      if (updateError) {
-        console.error(`Error updating auto-book ${autoBook.id}:`, updateError);
-        results.push({
-          autoBookId: autoBook.id,
-          userId: autoBook.user_id,
-          eventId: autoBook.event_id,
-          eventName: event.name,
-          status: "error",
-          failureReason: "platform_error",
-          quantity: autoBook.quantity,
-          seatType: autoBook.seat_type,
-          totalCost,
-          message: "Database update failed"
-        });
-        failedCount++;
-      } else {
-        if (newStatus === "success") {
-          successCount++;
-        } else {
-          failedCount++;
+        // Store dry-run results without changing status
+        const { error: dryRunError } = await supabase
+          .from("auto_books")
+          .update({
+            is_dry_run: true,
+            dry_run_results: dryRunData,
+            dry_run_executed_at: now.toISOString(),
+          })
+          .eq("id", autoBook.id);
+
+        if (dryRunError) {
+          console.error(`Error storing dry-run results for ${autoBook.id}:`, dryRunError);
         }
-        
-        results.push({
-          autoBookId: autoBook.id,
-          userId: autoBook.user_id,
-          eventId: autoBook.event_id,
-          eventName: event.name,
-          status: newStatus,
-          failureReason,
-          quantity: autoBook.quantity,
-          seatType: autoBook.seat_type,
-          totalCost,
-          message
-        });
-        
-        console.log(`Auto-book ${autoBook.id}: ${newStatus} - ${message}`);
+      } else {
+        // NORMAL MODE: Update status and availability check timestamp
+        const { error: updateErrorLocal } = await supabase
+          .from("auto_books")
+          .update({ 
+            status: newStatus, 
+            failure_reason: failureReason,
+            availability_checked_at: now.toISOString(),
+            updated_at: now.toISOString() 
+          })
+          .eq("id", autoBook.id);
+
+        updateError = updateErrorLocal; // Assign updateErrorLocal to updateError
+
+        if (updateError) {
+          console.error(`Error updating auto-book ${autoBook.id}:`, updateError);
+          results.push({
+            autoBookId: autoBook.id,
+            userId: autoBook.user_id,
+            eventId: autoBook.event_id,
+            eventName: event.name,
+            status: "error",
+            failureReason: "platform_error",
+            quantity: autoBook.quantity,
+            seatType: autoBook.seat_type,
+            totalCost,
+            message: "Database update failed"
+          });
+          failedCount++;
+          continue; // Continue to the next iteration instead of returning
+        }
       }
+
+      if (newStatus === "success") {
+        successCount++;
+      } else {
+        failedCount++;
+      }
+      
+      results.push({
+        autoBookId: autoBook.id,
+        userId: autoBook.user_id,
+        eventId: autoBook.event_id,
+        eventName: event.name,
+        status: newStatus,
+        failureReason,
+        quantity: autoBook.quantity,
+        seatType: autoBook.seat_type,
+        totalCost,
+        message: dryRun && dryRunAutoBookId === autoBook.id ? `[DRY-RUN] ${message}` : message
+      });
+      
+      console.log(`Auto-book ${autoBook.id}: ${newStatus} - ${message}`);
     }
 
     console.log(`Processing complete. Success: ${successCount}, Failed: ${failedCount}`);
 
     return new Response(
       JSON.stringify({
-        message: "Auto-book processing complete",
+        message: dryRun ? "Dry-run simulation complete" : "Auto-book processing complete",
+        isDryRun: dryRun,
         processed: activeAutoBooks.length,
         eventsProcessed: liveEvents.length,
         success: successCount,
         failed: failedCount,
         results,
-        processedAt: now.toISOString()
+        processedAt: now.toISOString(),
+        note: dryRun ? "Results are simulated and not stored in the database" : undefined
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
