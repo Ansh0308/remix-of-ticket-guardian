@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { Calendar, MapPin, Ticket, Zap, Trash2, Play, Loader2 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import StatusBadge from '@/components/events/StatusBadge';
+import AssistedBookingCTA from '@/components/events/AssistedBookingCTA';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -229,6 +230,21 @@ const MyBookings: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            {/* Assisted Booking CTA for successful bookings */}
+            {booking.status === 'success' && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-success">✓ Tickets are available right now</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Matching tickets were detected at release time. Act now before they sell out!
+                    </p>
+                  </div>
+                  <AssistedBookingCTA booking={booking} event={booking.event} size="md" />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </motion.div>

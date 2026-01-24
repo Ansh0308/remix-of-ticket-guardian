@@ -1,9 +1,12 @@
+'use client';
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AutoBook, SeatType } from '@/types';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { triggerAssistedBookingOnSuccess, hasAssistedBookingEmailBeenSent } from '@/lib/assistedBookingService';
 
 export const useAutoBooks = () => {
   const { user } = useAuth();
@@ -27,7 +30,7 @@ export const useAutoBooks = () => {
           table: 'auto_books',
           filter: `user_id=eq.${user.id}`,
         },
-        (payload) => {
+        async (payload) => {
           console.log('Auto-book real-time update:', payload);
           
           // Invalidate queries to refetch data
@@ -37,15 +40,44 @@ export const useAutoBooks = () => {
 
           // Show toast notification for status changes
           if (payload.eventType === 'UPDATE' && payload.new && payload.old) {
-            const newRecord = payload.new as { status: string; event_id: string };
+            const newRecord = payload.new as { status: string; event_id: string; id: string };
             const oldRecord = payload.old as { status: string };
             
             if (newRecord.status !== oldRecord.status) {
               if (newRecord.status === 'success') {
+                // Check if email was already sent to avoid duplicate notifications
+                const alreadySent = await hasAssistedBookingEmailBeenSent(newRecord.id);
+                
                 toast({
-                  title: "🎉 Booking Successful!",
-                  description: "Your auto-book request was processed successfully. Check your bookings!",
+                  title: "🎉 Tickets Available!",
+                  description: "Matching tickets are available right now. Check your bookings to book now!",
+                  action: alreadySent ? undefined : {
+                    label: "Book Now",
+                    onClick: () => {
+                      // Will be handled by the booking card's CTA
+                    },
+                  },
                 });
+
+                // Trigger assisted booking email (non-blocking)
+                try {
+                  const { data: autoBookData } = await supabase
+                    .from('auto_books')
+                    .select('*, event:events(*), profiles:profiles(name, email)')
+                    .eq('id', newRecord.id)
+                    .single();
+
+                  if (autoBookData?.event && autoBookData?.profiles) {
+                    await triggerAssistedBookingOnSuccess(
+                      autoBookData as AutoBook,
+                      autoBookData.event,
+                      autoBookData.profiles
+                    );
+                  }
+                } catch (error) {
+                  console.error('[Auto Books] Error triggering assisted booking:', error);
+                  // Don't fail the main flow if email fails
+                }
               } else if (newRecord.status === 'failed') {
                 toast({
                   title: "❌ Booking Failed",
@@ -115,7 +147,7 @@ export const useExistingAutoBook = (eventId: string | undefined) => {
           table: 'auto_books',
           filter: `event_id=eq.${eventId}`,
         },
-        (payload) => {
+        async (payload) => {
           console.log('Auto-book event real-time update:', payload);
           const userId = userIdRef.current;
           queryClientRef.current.invalidateQueries({ queryKey: ['autoBook', userId, eventId] });
