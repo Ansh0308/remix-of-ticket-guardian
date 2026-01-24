@@ -16,45 +16,12 @@ export function useRealtimeAutoBook() {
 
     try {
       const now = new Date();
+      console.log(`[AutoBook] Processing at ${now.toISOString()}`);
 
-      // Step 1: Update event statuses based on ticket_release_time
-      const { error: statusUpdateError } = await supabase
-        .from('events')
-        .update({ status: 'live' })
-        .eq('status', 'coming_soon')
-        .lte('ticket_release_time', now.toISOString())
-        .eq('is_active', true);
-
-      if (statusUpdateError) {
-        console.error('[AutoBook] Error updating event statuses:', statusUpdateError);
-      }
-
-      // Step 2: Get all live events
-      const { data: liveEvents, error: eventsError } = await supabase
-        .from('events')
-        .select('id, name, price, ticket_release_time, status, is_active')
-        .eq('status', 'live')
-        .eq('is_active', true)
-        .lte('ticket_release_time', now.toISOString());
-
-      if (eventsError || !liveEvents) {
-        console.error('[AutoBook] Error fetching live events:', eventsError);
-        return;
-      }
-
-      if (liveEvents.length === 0) {
-        console.log('[AutoBook] No live events to process');
-        return;
-      }
-
-      const eventIds = liveEvents.map((e) => e.id);
-      const eventMap = new Map(liveEvents.map((e) => [e.id, e]));
-
-      // Step 3: Get all active auto-books for live events
+      // Step 1: Get all ACTIVE auto-books (regardless of event status in DB)
       const { data: activeAutoBooks, error: autoBookError } = await supabase
         .from('auto_books')
         .select('*')
-        .in('event_id', eventIds)
         .eq('status', 'active');
 
       if (autoBookError || !activeAutoBooks) {
@@ -67,13 +34,43 @@ export function useRealtimeAutoBook() {
         return;
       }
 
-      console.log(`[AutoBook] Processing ${activeAutoBooks.length} auto-books...`);
+      console.log(`[AutoBook] Found ${activeAutoBooks.length} active auto-books`);
+
+      // Step 2: Get the events for these auto-books
+      const eventIds = [...new Set(activeAutoBooks.map((ab) => ab.event_id))];
+      const { data: events, error: eventsError } = await supabase
+        .from('events')
+        .select('id, name, price, ticket_release_time, status')
+        .in('id', eventIds);
+
+      if (eventsError || !events) {
+        console.error('[AutoBook] Error fetching events:', eventsError);
+        return;
+      }
+
+      const eventMap = new Map(events.map((e) => [e.id, e]));
+
+      // Step 3: Filter to only events where release time has passed (time-based, not status-based)
+      const eligibleAutoBooks = activeAutoBooks.filter((ab) => {
+        const event = eventMap.get(ab.event_id);
+        if (!event) return false;
+        
+        const releaseTime = new Date(event.ticket_release_time);
+        return releaseTime <= now;
+      });
+
+      if (eligibleAutoBooks.length === 0) {
+        console.log('[AutoBook] No auto-books with passed release times');
+        return;
+      }
+
+      console.log(`[AutoBook] Processing ${eligibleAutoBooks.length} eligible auto-books...`);
 
       // Step 4: Process each auto-book with deterministic logic
       const userEventMap = new Map<string, string>();
       const resultsToNotify: any[] = [];
 
-      for (const autoBook of activeAutoBooks) {
+      for (const autoBook of eligibleAutoBooks) {
         const event = eventMap.get(autoBook.event_id);
         if (!event) continue;
 
@@ -189,9 +186,13 @@ export function useRealtimeAutoBook() {
 
   // Set up periodic check (fallback for when Realtime subscription doesn't trigger)
   const setupPeriodicCheck = useCallback(() => {
+    // Run immediately on app load
+    processAutoBooks();
+    
+    // Then check every 10 seconds
     const intervalId = setInterval(() => {
       processAutoBooks();
-    }, 10000); // Check every 10 seconds
+    }, 10000);
 
     return () => clearInterval(intervalId);
   }, [processAutoBooks]);
