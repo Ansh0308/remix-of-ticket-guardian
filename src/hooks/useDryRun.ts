@@ -157,30 +157,6 @@ export const useDryRun = () => {
         simulatedMessage = `Tickets matching your preferences were AVAILABLE at release time (${autoBook.quantity} × ${autoBook.seat_type}, ₹${totalCost}).`;
       }
 
-      // Store dry-run results WITHOUT changing actual status
-      const { error: updateError } = await supabase
-        .from('auto_books')
-        .update({
-          is_dry_run: true,
-          dry_run_results: {
-            simulatedStatus,
-            simulatedFailureReason,
-            simulatedMessage,
-            dryRunTimestamp: now.toISOString(),
-            eventPrice: event.price,
-            userBudget: autoBook.max_budget,
-            quantity: autoBook.quantity,
-            totalCost,
-            timeSinceRelease: Math.round(timeSinceRelease / 1000),
-          },
-          dry_run_executed_at: now.toISOString(),
-        })
-        .eq('id', autoBookId);
-
-      if (updateError) {
-        throw new Error(`Failed to store dry-run results: ${updateError.message}`);
-      }
-
       const result: DryRunResult = {
         autoBookId,
         status: simulatedStatus,

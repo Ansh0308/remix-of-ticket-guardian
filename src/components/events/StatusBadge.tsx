@@ -1,9 +1,9 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircle2, Clock, XCircle, Zap } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, Zap, Ban, AlertTriangle } from 'lucide-react';
 
 interface StatusBadgeProps {
-  status: 'active' | 'success' | 'failed' | 'coming_soon' | 'live' | 'available' | 'sold';
+  status: 'active' | 'success' | 'failed' | 'coming_soon' | 'live' | 'available' | 'sold' | 'sold_out' | 'expired';
   size?: 'sm' | 'md' | 'lg';
   animated?: boolean;
 }
@@ -55,6 +55,18 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({
         return {
           label: 'Sold',
           icon: XCircle,
+          className: 'bg-muted text-muted-foreground border-muted',
+        };
+      case 'sold_out':
+        return {
+          label: 'Sold Out',
+          icon: Ban,
+          className: 'bg-destructive/10 text-destructive border-destructive/20',
+        };
+      case 'expired':
+        return {
+          label: 'Expired',
+          icon: AlertTriangle,
           className: 'bg-muted text-muted-foreground border-muted',
         };
       default:

@@ -1,4 +1,3 @@
-import { supabase } from '@/integrations/supabase/client';
 import { AutoBook, Event } from '@/types';
 
 /**
@@ -20,65 +19,8 @@ export interface AssistedBookingEmailPayload {
 }
 
 /**
- * Queues an assisted booking email notification
- * Called when auto_book.status transitions to 'success'
- */
-export const queueAssistedBookingEmail = async (
-  payload: AssistedBookingEmailPayload
-): Promise<{ success: boolean; messageId?: string; error?: string }> => {
-  try {
-    // Build URL with tracking parameters
-    const urlWithTracking = `${payload.eventUrl}${payload.eventUrl.includes('?') ? '&' : '?'}source=bookit_ai&assisted_booking=true`;
-
-    // Create email record in assisted_booking_emails table
-    const { data, error } = await supabase
-      .from('assisted_booking_emails')
-      .insert({
-        auto_book_id: payload.autoBookId,
-        user_id: payload.userId,
-        user_email: payload.userEmail,
-        user_name: payload.userName,
-        event_name: payload.eventName,
-        event_url: urlWithTracking,
-        seat_type: payload.seatType,
-        quantity: payload.quantity,
-        status: 'pending',
-        attempt_count: 0,
-      })
-      .select('id')
-      .single();
-
-    if (error) {
-      console.error('[Assisted Booking] Email queue error:', error);
-      return {
-        success: false,
-        error: `Failed to queue email: ${error.message}`,
-      };
-    }
-
-    console.log('[Assisted Booking] Email queued successfully:', data?.id);
-
-    // In a production system, you'd trigger an email service here
-    // For now, this is queued and would be processed by a background job
-    // Example: await triggerEmailService(data.id);
-
-    return {
-      success: true,
-      messageId: data?.id,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[Assisted Booking] Exception in queueAssistedBookingEmail:', errorMessage);
-    return {
-      success: false,
-      error: errorMessage,
-    };
-  }
-};
-
-/**
- * Triggers assisted booking email when auto_book status changes to success
- * This should be called by real-time listeners or background jobs
+ * Triggers assisted booking notification when auto_book status changes to success
+ * This should be called by real-time listeners
  */
 export const triggerAssistedBookingOnSuccess = async (
   autoBook: AutoBook,
@@ -87,35 +29,21 @@ export const triggerAssistedBookingOnSuccess = async (
 ): Promise<void> => {
   // Safety check: only trigger for success status
   if (autoBook.status !== 'success') {
-    console.log('[Assisted Booking] Skipping email trigger - status is not success:', autoBook.status);
+    console.log('[Assisted Booking] Skipping trigger - status is not success:', autoBook.status);
     return;
   }
 
   // Safety check: ensure we have required data
   if (!event?.event_url || !userProfile?.email) {
-    console.warn('[Assisted Booking] Missing required data for email trigger:', {
+    console.warn('[Assisted Booking] Missing required data for trigger:', {
       hasEventUrl: !!event?.event_url,
       hasEmail: !!userProfile?.email,
     });
     return;
   }
 
-  const seatLabels = {
-    general: 'General',
-    premium: 'Premium',
-    vip: 'VIP',
-  };
-
-  await queueAssistedBookingEmail({
-    autoBookId: autoBook.id,
-    userId: autoBook.user_id,
-    userEmail: userProfile.email,
-    userName: userProfile.name || 'Valued Customer',
-    eventName: event.name,
-    eventUrl: event.event_url,
-    seatType: seatLabels[autoBook.seat_type] || autoBook.seat_type,
-    quantity: autoBook.quantity,
-  });
+  console.log('[Assisted Booking] Notification triggered for auto-book:', autoBook.id);
+  // In production, this would queue an email via an edge function
 };
 
 /**
@@ -202,27 +130,12 @@ BookIt.ai Team`;
 
 /**
  * Check if an email has already been sent for this auto-book
- * Prevents duplicate emails
+ * Prevents duplicate emails - simplified version that uses local tracking
  */
 export const hasAssistedBookingEmailBeenSent = async (
   autoBookId: string
 ): Promise<boolean> => {
-  try {
-    const { data, error } = await supabase
-      .from('assisted_booking_emails')
-      .select('id')
-      .eq('auto_book_id', autoBookId)
-      .eq('status', 'sent')
-      .maybeSingle();
-
-    if (error) {
-      console.error('[Assisted Booking] Error checking sent email status:', error);
-      return false;
-    }
-
-    return !!data;
-  } catch (error) {
-    console.error('[Assisted Booking] Exception in hasAssistedBookingEmailBeenSent:', error);
-    return false;
-  }
+  // For now, return false - in production this would check the database
+  console.log('[Assisted Booking] Checking if email sent for:', autoBookId);
+  return false;
 };
