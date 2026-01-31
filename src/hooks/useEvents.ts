@@ -42,13 +42,14 @@ export const useEvents = () => {
       const { data, error } = await supabase
         .from('events')
         .select('*')
+        .eq('is_active', true)
         .order('date', { ascending: true });
 
       if (error) throw error;
 
       return (data || []).map(event => ({
         ...event,
-        status: event.status as 'coming_soon' | 'live'
+        status: event.status as 'coming_soon' | 'live' | 'sold_out' | 'expired'
       }));
     },
   });
@@ -102,7 +103,7 @@ export const useEvent = (eventId: string | undefined) => {
 
       return {
         ...data,
-        status: data.status as 'coming_soon' | 'live'
+        status: data.status as 'coming_soon' | 'live' | 'sold_out' | 'expired'
       };
     },
     enabled: !!eventId,

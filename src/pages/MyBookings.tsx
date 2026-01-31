@@ -3,9 +3,10 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, Ticket, Zap, Trash2, Play, Loader2 } from 'lucide-react';
+import { Calendar, MapPin, Ticket, Zap, Trash2, Play, Loader2, RefreshCw } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import StatusBadge from '@/components/events/StatusBadge';
+import FailureReasonBadge from '@/components/events/FailureReasonBadge';
 import AssistedBookingCTA from '@/components/events/AssistedBookingCTA';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -14,13 +15,15 @@ import { useAutoBooks, useCancelAutoBook } from '@/hooks/useAutoBooks';
 import { useAuth } from '@/context/AuthContext';
 import { AutoBook } from '@/types';
 import { toast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { useRealtimeAutoBook } from '@/hooks/useRealtimeAutoBook';
 import { useQueryClient } from '@tanstack/react-query';
+
 const MyBookings: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState('active');
   const [isProcessing, setIsProcessing] = useState(false);
   const queryClient = useQueryClient();
+  const { processAutoBooks } = useRealtimeAutoBook();
 
   const { data: allBookings = [], isLoading: bookingsLoading } = useAutoBooks();
   const cancelAutoBook = useCancelAutoBook();
@@ -39,33 +42,16 @@ const MyBookings: React.FC = () => {
     
     setIsProcessing(true);
     try {
-      // Call the working API endpoint
-      const response = await fetch('/api/test-auto-books', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to process auto-books');
-      }
-
-      const data = await response.json();
+      // Use the client-side processor which updates event statuses AND processes auto-books
+      await processAutoBooks();
 
       // Refresh the bookings list
       await queryClient.invalidateQueries({ queryKey: ['autoBooks'] });
+      await queryClient.invalidateQueries({ queryKey: ['events'] });
 
       toast({
         title: "Processing Complete!",
-        description: `Processed ${data.processed} auto-book(s). Success: ${data.success || 0}, Failed: ${data.failed || 0}`,
-      });
-
-      // Show details for each result
-      data.results?.forEach((result: any) => {
-        toast({
-          title: result.eventName,
-          description: result.message,
-          variant: result.status === 'success' ? 'default' : 'destructive',
-        });
+        description: "Auto-books have been processed. Check the results below.",
       });
     } catch (error) {
       console.error('Error processing auto-books:', error);
@@ -156,6 +142,11 @@ const MyBookings: React.FC = () => {
   const BookingCard: React.FC<{ booking: AutoBook; index: number }> = ({ booking, index }) => {
     const eventImage = booking.event?.image_url || `https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800&q=80`;
 
+    // Check if ticket release time has passed
+    const releaseTime = booking.event?.ticket_release_time ? new Date(booking.event.ticket_release_time) : null;
+    const now = new Date();
+    const hasReleasePassed = releaseTime && releaseTime <= now;
+
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -180,8 +171,16 @@ const MyBookings: React.FC = () => {
                 <h3 className="font-semibold text-foreground text-lg">
                   {booking.event?.name || 'Unknown Event'}
                 </h3>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <StatusBadge status={booking.status} size="sm" />
+                  {booking.event && (
+                    <StatusBadge status={booking.event.status} size="sm" />
+                  )}
+                  {booking.status === 'active' && hasReleasePassed && (
+                    <span className="text-xs text-warning bg-warning/10 px-2 py-0.5 rounded-full">
+                      ⏰ Release time passed - processing...
+                    </span>
+                  )}
                 </div>
               </div>
               {booking.status === 'active' && (
@@ -207,6 +206,12 @@ const MyBookings: React.FC = () => {
                   <MapPin className="w-4 h-4" />
                   {booking.event.city}
                 </div>
+                {booking.event.ticket_release_time && (
+                  <div className="flex items-center gap-1">
+                    <Zap className="w-4 h-4" />
+                    Release: {formatDate(booking.event.ticket_release_time)} at {formatTime(booking.event.ticket_release_time)}
+                  </div>
+                )}
               </div>
             )}
 
@@ -230,6 +235,13 @@ const MyBookings: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            {/* Failure Reason for failed bookings */}
+            {booking.status === 'failed' && booking.failure_reason && (
+              <div className="mt-2 pt-2 border-t border-border">
+                <FailureReasonBadge reason={booking.failure_reason} />
+              </div>
+            )}
 
             {/* Assisted Booking CTA for successful bookings */}
             {booking.status === 'success' && (
@@ -297,25 +309,47 @@ const MyBookings: React.FC = () => {
             </p>
           </div>
           
-          {activeBookings.length > 0 && (
+          <div className="flex gap-2">
             <Button
-              onClick={handleProcessAutoBooks}
-              disabled={isProcessing}
-              className="bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white shadow-lg"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['autoBooks'] })}
+              variant="outline"
+              size="sm"
             >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 mr-2" />
-                  Process Auto-Books Now
-                </>
-              )}
+              <RefreshCw className="w-4 h-4" />
             </Button>
-          )}
+            {activeBookings.length > 0 && (
+              <Button
+                onClick={handleProcessAutoBooks}
+                disabled={isProcessing}
+                className="bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white shadow-lg"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 mr-2" />
+                    Process Now
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Info banner about auto-processing */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="mb-6 p-4 rounded-xl bg-primary/5 border border-primary/20"
+        >
+          <p className="text-sm text-primary">
+            <strong>⚡ Auto-processing enabled:</strong> The system checks every 10 seconds and automatically processes 
+            auto-books when ticket release time arrives. You can also click "Process Now" to trigger immediately.
+          </p>
         </motion.div>
 
         {bookingsLoading ? (

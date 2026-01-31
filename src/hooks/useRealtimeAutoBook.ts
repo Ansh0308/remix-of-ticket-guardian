@@ -1,15 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
 export function useRealtimeAutoBook() {
-  const abortControllerRef = useRef<AbortController | null>(null);
   const processingRef = useRef(false);
   const subscriptionRef = useRef<any>(null);
 
-  // Main auto-booking processor - runs deterministic checks and books tickets
+  // Main auto-booking processor - updates event statuses AND processes auto-books
   const processAutoBooks = useCallback(async () => {
     if (processingRef.current) return;
     processingRef.current = true;
@@ -18,7 +17,40 @@ export function useRealtimeAutoBook() {
       const now = new Date();
       console.log(`[AutoBook] Processing at ${now.toISOString()}`);
 
-      // Step 1: Get all ACTIVE auto-books (regardless of event status in DB)
+      // CRITICAL STEP 1: Update event statuses from 'coming_soon' to 'live' 
+      // when ticket_release_time has passed
+      const { data: eventsToUpdate, error: eventsToUpdateError } = await supabase
+        .from('events')
+        .select('id, name, ticket_release_time')
+        .eq('status', 'coming_soon')
+        .eq('is_active', true)
+        .lte('ticket_release_time', now.toISOString());
+
+      if (eventsToUpdateError) {
+        console.error('[AutoBook] Error checking events to update:', eventsToUpdateError);
+      } else if (eventsToUpdate && eventsToUpdate.length > 0) {
+        console.log(`[AutoBook] Updating ${eventsToUpdate.length} events to LIVE status`);
+        
+        const eventIds = eventsToUpdate.map(e => e.id);
+        const { error: updateStatusError } = await supabase
+          .from('events')
+          .update({ 
+            status: 'live', 
+            updated_at: now.toISOString() 
+          })
+          .in('id', eventIds);
+
+        if (updateStatusError) {
+          console.error('[AutoBook] Error updating event statuses:', updateStatusError);
+        } else {
+          console.log(`[AutoBook] Successfully updated ${eventIds.length} events to LIVE`);
+          eventsToUpdate.forEach(e => {
+            console.log(`  → ${e.name}: coming_soon → live`);
+          });
+        }
+      }
+
+      // Step 2: Get all ACTIVE auto-books
       const { data: activeAutoBooks, error: autoBookError } = await supabase
         .from('auto_books')
         .select('*')
@@ -36,7 +68,7 @@ export function useRealtimeAutoBook() {
 
       console.log(`[AutoBook] Found ${activeAutoBooks.length} active auto-books`);
 
-      // Step 2: Get the events for these auto-books
+      // Step 3: Get the events for these auto-books
       const eventIds = [...new Set(activeAutoBooks.map((ab) => ab.event_id))];
       const { data: events, error: eventsError } = await supabase
         .from('events')
@@ -50,13 +82,19 @@ export function useRealtimeAutoBook() {
 
       const eventMap = new Map(events.map((e) => [e.id, e]));
 
-      // Step 3: Filter to only events where release time has passed (time-based, not status-based)
+      // Step 4: Filter to only events where release time has passed (time-based check)
       const eligibleAutoBooks = activeAutoBooks.filter((ab) => {
         const event = eventMap.get(ab.event_id);
         if (!event) return false;
         
         const releaseTime = new Date(event.ticket_release_time);
-        return releaseTime <= now;
+        const hasPassedReleaseTime = releaseTime <= now;
+        
+        if (hasPassedReleaseTime) {
+          console.log(`[AutoBook] Auto-book ${ab.id} eligible - release time passed: ${event.ticket_release_time}`);
+        }
+        
+        return hasPassedReleaseTime;
       });
 
       if (eligibleAutoBooks.length === 0) {
@@ -66,7 +104,7 @@ export function useRealtimeAutoBook() {
 
       console.log(`[AutoBook] Processing ${eligibleAutoBooks.length} eligible auto-books...`);
 
-      // Step 4: Process each auto-book with deterministic logic
+      // Step 5: Process each auto-book with deterministic logic
       const userEventMap = new Map<string, string>();
       const resultsToNotify: any[] = [];
 
@@ -99,6 +137,12 @@ export function useRealtimeAutoBook() {
         let failureReason: string | null = null;
         let message: string = '';
 
+        console.log(`[AutoBook] Checking auto-book ${autoBook.id}:`);
+        console.log(`  - Event: ${event.name}`);
+        console.log(`  - Price: ₹${event.price} x ${autoBook.quantity} = ₹${totalCost}`);
+        console.log(`  - Budget: ₹${autoBook.max_budget}`);
+        console.log(`  - Time since release: ${Math.round(timeSinceRelease / 1000)}s`);
+
         // Check 1: Budget validation
         if (totalCost > autoBook.max_budget) {
           bookingStatus = 'failed';
@@ -118,13 +162,14 @@ export function useRealtimeAutoBook() {
           message = `Successfully booked ${autoBook.quantity} ${autoBook.seat_type} tickets for ₹${totalCost}`;
         }
 
+        console.log(`  - Result: ${bookingStatus} - ${message}`);
+
         // Update auto-book with result
         const { error: updateError } = await supabase
           .from('auto_books')
           .update({
             status: bookingStatus,
             failure_reason: failureReason,
-            availability_checked_at: now.toISOString(),
             updated_at: now.toISOString(),
           })
           .eq('id', autoBook.id);
@@ -139,17 +184,26 @@ export function useRealtimeAutoBook() {
             totalCost,
           });
 
-          console.log(`[AutoBook] ${autoBook.id}: ${bookingStatus} - ${message}`);
+          console.log(`[AutoBook] ✓ Updated ${autoBook.id}: ${bookingStatus}`);
+        } else {
+          console.error(`[AutoBook] ✗ Failed to update ${autoBook.id}:`, updateError);
         }
       }
 
       // Notify about results
       if (resultsToNotify.length > 0) {
+        console.log(`[AutoBook] Showing ${resultsToNotify.length} notifications`);
         resultsToNotify.forEach((result) => {
           if (result.status === 'success') {
             toast({
-              title: 'Booking Successful!',
+              title: '🎉 Booking Successful!',
               description: result.message,
+            });
+          } else {
+            toast({
+              title: '❌ Booking Failed',
+              description: result.message,
+              variant: 'destructive',
             });
           }
         });
@@ -184,9 +238,10 @@ export function useRealtimeAutoBook() {
     subscriptionRef.current = channel;
   }, [processAutoBooks]);
 
-  // Set up periodic check (fallback for when Realtime subscription doesn't trigger)
+  // Set up periodic check (runs every 10 seconds to catch release times)
   const setupPeriodicCheck = useCallback(() => {
     // Run immediately on app load
+    console.log('[AutoBook] Starting periodic check (every 10 seconds)...');
     processAutoBooks();
     
     // Then check every 10 seconds
@@ -197,11 +252,9 @@ export function useRealtimeAutoBook() {
     return () => clearInterval(intervalId);
   }, [processAutoBooks]);
 
-  // Initialize on mount (only if called explicitly, not in useEffect here)
-  // This allows the context to manage initialization
-
-  // Return both setup function and processor
+  // Initialize function to be called by context
   const initialize = useCallback(() => {
+    console.log('[AutoBook] Initializing realtime auto-book processor...');
     setupRealtimeListener();
     const cleanup = setupPeriodicCheck();
 
