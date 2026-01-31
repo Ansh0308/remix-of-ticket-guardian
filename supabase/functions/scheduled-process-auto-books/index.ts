@@ -1,6 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { env } from "https://deno.land/std@0.168.0/dotenv/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,9 +13,8 @@ serve(async (req) => {
   }
 
   try {
-    const envData = await env({ path: "./.env" });
-    const supabaseUrl = envData.SUPABASE_URL!;
-    const supabaseServiceKey = envData.SUPABASE_SERVICE_ROLE_KEY!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log("[Scheduler] Auto-book scheduler triggered");
@@ -76,16 +74,20 @@ serve(async (req) => {
           ticket_release_time
         )
       `)
-      .eq("status", "active")
-      .in("events.status", ["live"])
-      .lte("events.ticket_release_time", now.toISOString());
+      .eq("status", "active");
 
     if (autoBooksError) {
       console.warn(`[Scheduler] Warning fetching auto-books: ${autoBooksError.message}`);
     }
 
-    if (autoBooks && autoBooks.length > 0) {
-      console.log(`[Scheduler] Found ${autoBooks.length} auto-books to process`);
+    // Filter auto-books for live events
+    const liveAutoBooks = autoBooks?.filter((ab: any) => 
+      ab.events?.status === "live" && 
+      new Date(ab.events?.ticket_release_time) <= now
+    ) || [];
+
+    if (liveAutoBooks.length > 0) {
+      console.log(`[Scheduler] Found ${liveAutoBooks.length} auto-books to process`);
 
       // Step 4: Call the main processor function with these auto-books
       try {
@@ -98,7 +100,7 @@ serve(async (req) => {
             Authorization: `Bearer ${supabaseServiceKey}`,
           },
           body: JSON.stringify({
-            autoBookIds: autoBooks.map((ab) => ab.id),
+            autoBookIds: liveAutoBooks.map((ab: any) => ab.id),
             scheduled: true,
             timestamp: now.toISOString(),
           }),
@@ -110,9 +112,9 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: true,
-            message: `Processed ${autoBooks.length} auto-books`,
+            message: `Processed ${liveAutoBooks.length} auto-books`,
             eventsUpdated: eventsToUpdate?.length || 0,
-            autoBooks: autoBooks.length,
+            autoBooks: liveAutoBooks.length,
             timestamp: now.toISOString(),
           }),
           {

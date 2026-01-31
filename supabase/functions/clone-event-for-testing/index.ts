@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Deno } from "https://deno.land/std@0.168.0/runtime.ts"; // Declared Deno variable
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,7 +25,7 @@ serve(async (req) => {
     if (!eventId) {
       return new Response(
         JSON.stringify({ error: "eventId is required" }),
-        { status: 400, headers: corsHeaders }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -40,7 +39,7 @@ serve(async (req) => {
     if (fetchError || !originalEvent) {
       return new Response(
         JSON.stringify({ error: "Event not found", details: fetchError }),
-        { status: 404, headers: corsHeaders }
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -73,7 +72,7 @@ serve(async (req) => {
       console.error("[Clone Event] Insert error:", insertError);
       return new Response(
         JSON.stringify({ error: "Failed to create test event", details: insertError }),
-        { status: 500, headers: corsHeaders }
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -92,13 +91,14 @@ serve(async (req) => {
         eventName: inserted.name,
         message: `Test event created. Tickets will "release" in ${testOffsetMinutes} minutes.`,
       }),
-      { status: 200, headers: corsHeaders }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("[Clone Event] Unexpected error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: "Internal server error", details: error.message }),
-      { status: 500, headers: corsHeaders }
+      JSON.stringify({ error: "Internal server error", details: errorMessage }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

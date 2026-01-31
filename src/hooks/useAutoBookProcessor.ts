@@ -4,10 +4,10 @@ import { useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface ProcessorResult {
-  updated_events: number;
-  processed_auto_books: number;
-  successful_bookings: number;
-  failed_bookings: number;
+  processed: number;
+  eventsProcessed: number;
+  success: number;
+  failed: number;
 }
 
 export function useAutoBookProcessor() {
@@ -15,22 +15,24 @@ export function useAutoBookProcessor() {
 
   const processAutoBooks = async (): Promise<ProcessorResult | null> => {
     try {
-      const { data, error } = await supabase.rpc('run_auto_book_processor');
+      // Call the edge function instead of RPC
+      const { data, error } = await supabase.functions.invoke('process-auto-books', {
+        body: {}
+      });
 
       if (error) {
         console.error('[Auto Book Processor] Error:', error);
         return null;
       }
 
-      if (data && data.length > 0) {
-        const result = data[0] as ProcessorResult;
+      if (data) {
         console.log('[Auto Book Processor] Result:', {
-          updated_events: result.updated_events,
-          processed_auto_books: result.processed_auto_books,
-          successful_bookings: result.successful_bookings,
-          failed_bookings: result.failed_bookings,
+          processed: data.processed,
+          eventsProcessed: data.eventsProcessed,
+          success: data.success,
+          failed: data.failed,
         });
-        return result;
+        return data as ProcessorResult;
       }
 
       return null;

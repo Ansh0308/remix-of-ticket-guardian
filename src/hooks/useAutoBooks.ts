@@ -3,10 +3,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { AutoBook, SeatType } from '@/types';
+import { AutoBook, SeatType, AutoBookFailureReason } from '@/types';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { triggerAssistedBookingOnSuccess, hasAssistedBookingEmailBeenSent } from '@/lib/assistedBookingService';
 
 export const useAutoBooks = () => {
   const { user } = useAuth();
@@ -45,39 +44,10 @@ export const useAutoBooks = () => {
             
             if (newRecord.status !== oldRecord.status) {
               if (newRecord.status === 'success') {
-                // Check if email was already sent to avoid duplicate notifications
-                const alreadySent = await hasAssistedBookingEmailBeenSent(newRecord.id);
-                
                 toast({
                   title: "🎉 Tickets Available!",
                   description: "Matching tickets are available right now. Check your bookings to book now!",
-                  action: alreadySent ? undefined : {
-                    label: "Book Now",
-                    onClick: () => {
-                      // Will be handled by the booking card's CTA
-                    },
-                  },
                 });
-
-                // Trigger assisted booking email (non-blocking)
-                try {
-                  const { data: autoBookData } = await supabase
-                    .from('auto_books')
-                    .select('*, event:events(*), profiles:profiles(name, email)')
-                    .eq('id', newRecord.id)
-                    .single();
-
-                  if (autoBookData?.event && autoBookData?.profiles) {
-                    await triggerAssistedBookingOnSuccess(
-                      autoBookData as AutoBook,
-                      autoBookData.event,
-                      autoBookData.profiles
-                    );
-                  }
-                } catch (error) {
-                  console.error('[Auto Books] Error triggering assisted booking:', error);
-                  // Don't fail the main flow if email fails
-                }
               } else if (newRecord.status === 'failed') {
                 toast({
                   title: "❌ Booking Failed",
@@ -116,9 +86,10 @@ export const useAutoBooks = () => {
         ...item,
         status: item.status as 'active' | 'success' | 'failed',
         seat_type: item.seat_type as SeatType,
+        failure_reason: (item.failure_reason || null) as AutoBookFailureReason,
         event: item.event ? {
           ...item.event,
-          status: item.event.status as 'coming_soon' | 'live'
+          status: item.event.status as 'coming_soon' | 'live' | 'sold_out' | 'expired'
         } : undefined
       }));
     },
@@ -180,7 +151,8 @@ export const useExistingAutoBook = (eventId: string | undefined) => {
       return {
         ...data,
         status: data.status as 'active' | 'success' | 'failed',
-        seat_type: data.seat_type as SeatType
+        seat_type: data.seat_type as SeatType,
+        failure_reason: (data.failure_reason || null) as AutoBookFailureReason
       };
     },
     enabled: !!user?.id && !!eventId,

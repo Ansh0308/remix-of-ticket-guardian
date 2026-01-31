@@ -1,6 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { Deno } from "https://deno.land/std@0.168.0/io/mod.ts"; // Declaring Deno variable
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -179,13 +178,12 @@ serve(async (req) => {
       let newStatus: "success" | "failed" = "failed";
       let failureReason: FailureReason = null;
       let message: string;
-      let updateError: any = null; // Declare updateError variable
+      let updateError: any = null;
 
       // PHASE 5: DETERMINISTIC AVAILABILITY CHECKS (No Random Logic)
       const withinBudget = totalCost <= autoBook.max_budget;
       const releaseTime = new Date(event.ticket_release_time);
       const timeSinceRelease = now.getTime() - releaseTime.getTime();
-      const availabilityCheckTimeMs = now.getTime(); // Exact time of check
 
       console.log(`[Availability Check] Auto-book ${autoBook.id}: Price ₹${event.price}, User Budget ₹${autoBook.max_budget}, Time since release: ${Math.round(timeSinceRelease / 1000)}s`);
 
@@ -229,7 +227,6 @@ serve(async (req) => {
         const { error: dryRunError } = await supabase
           .from("auto_books")
           .update({
-            is_dry_run: true,
             dry_run_results: dryRunData,
             dry_run_executed_at: now.toISOString(),
           })
@@ -245,12 +242,11 @@ serve(async (req) => {
           .update({ 
             status: newStatus, 
             failure_reason: failureReason,
-            availability_checked_at: now.toISOString(),
             updated_at: now.toISOString() 
           })
           .eq("id", autoBook.id);
 
-        updateError = updateErrorLocal; // Assign updateErrorLocal to updateError
+        updateError = updateErrorLocal;
 
         if (updateError) {
           console.error(`Error updating auto-book ${autoBook.id}:`, updateError);
@@ -267,7 +263,7 @@ serve(async (req) => {
             message: "Database update failed"
           });
           failedCount++;
-          continue; // Continue to the next iteration instead of returning
+          continue;
         }
       }
 
