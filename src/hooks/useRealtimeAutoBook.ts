@@ -119,11 +119,12 @@ export function useRealtimeAutoBook() {
           await supabase
             .from('auto_books')
             .update({ 
-              status: 'failed', 
+              status: 'failed' as const, 
               failure_reason: 'Duplicate auto-book',
               updated_at: now.toISOString() 
             })
-            .eq('id', autoBook.id);
+            .eq('id', autoBook.id)
+            .eq('user_id', autoBook.user_id);
           continue;
         }
         userEventMap.set(userEventKey, autoBook.id);
@@ -164,15 +165,16 @@ export function useRealtimeAutoBook() {
 
         console.log(`  - Result: ${bookingStatus} - ${message}`);
 
-        // Update auto-book with result
+        // Update auto-book with result - use user_id filter for RLS
         const { error: updateError } = await supabase
           .from('auto_books')
           .update({
-            status: bookingStatus,
+            status: bookingStatus as 'success' | 'failed',
             failure_reason: failureReason,
             updated_at: now.toISOString(),
           })
-          .eq('id', autoBook.id);
+          .eq('id', autoBook.id)
+          .eq('user_id', autoBook.user_id);
 
         if (!updateError) {
           resultsToNotify.push({
@@ -186,7 +188,7 @@ export function useRealtimeAutoBook() {
 
           console.log(`[AutoBook] ✓ Updated ${autoBook.id}: ${bookingStatus}`);
         } else {
-          console.error(`[AutoBook] ✗ Failed to update ${autoBook.id}:`, updateError);
+          console.error(`[AutoBook] ✗ Failed to update ${autoBook.id}:`, JSON.stringify(updateError));
         }
       }
 
