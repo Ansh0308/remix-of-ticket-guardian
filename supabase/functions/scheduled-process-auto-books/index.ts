@@ -1,15 +1,15 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.90.1?target=deno";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-serve(async (req) => {
-  // Handle CORS
+Deno.serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
@@ -89,24 +89,23 @@ serve(async (req) => {
     if (liveAutoBooks.length > 0) {
       console.log(`[Scheduler] Found ${liveAutoBooks.length} auto-books to process`);
 
-      // Step 4: Call the main processor function with these auto-books
+      // Step 4: Invoke the main processor function (server-side) with these auto-books
       try {
-        const processorUrl = `${supabaseUrl}/functions/v1/process-auto-books`;
+        const { data: result, error: invokeError } = await supabase.functions.invoke(
+          "process-auto-books",
+          {
+            body: {
+              autoBookIds: liveAutoBooks.map((ab: any) => ab.id),
+              scheduled: true,
+              timestamp: now.toISOString(),
+            },
+          }
+        );
 
-        const response = await fetch(processorUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${supabaseServiceKey}`,
-          },
-          body: JSON.stringify({
-            autoBookIds: liveAutoBooks.map((ab: any) => ab.id),
-            scheduled: true,
-            timestamp: now.toISOString(),
-          }),
-        });
+        if (invokeError) {
+          throw new Error(`Failed invoking process-auto-books: ${invokeError.message}`);
+        }
 
-        const result = await response.json();
         console.log(`[Scheduler] Processor response:`, result);
 
         return new Response(
