@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.90.1?target=deno";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
 
     // Step 2: Update event statuses to "live"
     if (eventsToUpdate && eventsToUpdate.length > 0) {
-      const eventIds = eventsToUpdate.map((e) => e.id);
+      const eventIds = eventsToUpdate.map((e: any) => e.id);
 
       const { error: updateError } = await supabase
         .from("events")
@@ -58,7 +58,8 @@ Deno.serve(async (req) => {
 
     const { data: autoBooks, error: autoBooksError } = await supabase
       .from("auto_books")
-      .select(`
+      .select(
+        `
         id,
         user_id,
         event_id,
@@ -73,7 +74,8 @@ Deno.serve(async (req) => {
           status,
           ticket_release_time
         )
-      `)
+      `
+      )
       .eq("status", "active");
 
     if (autoBooksError) {
@@ -81,10 +83,11 @@ Deno.serve(async (req) => {
     }
 
     // Filter auto-books for live events
-    const liveAutoBooks = autoBooks?.filter((ab: any) => 
-      ab.events?.status === "live" && 
-      new Date(ab.events?.ticket_release_time) <= now
-    ) || [];
+    const liveAutoBooks =
+      autoBooks?.filter(
+        (ab: any) =>
+          ab.events?.status === "live" && new Date(ab.events?.ticket_release_time) <= now
+      ) || [];
 
     if (liveAutoBooks.length > 0) {
       console.log(`[Scheduler] Found ${liveAutoBooks.length} auto-books to process`);
