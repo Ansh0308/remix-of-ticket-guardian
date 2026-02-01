@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.90.1?target=deno";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,13 +7,13 @@ const corsHeaders = {
 };
 
 // PHASE 4: Detailed failure reasons
-type FailureReason = 
-  | 'price_exceeded_budget'
-  | 'tickets_sold_out_fast'
-  | 'booking_window_missed'
-  | 'platform_error'
-  | 'quantity_unavailable'
-  | 'network_timeout'
+type FailureReason =
+  | "price_exceeded_budget"
+  | "tickets_sold_out_fast"
+  | "booking_window_missed"
+  | "platform_error"
+  | "quantity_unavailable"
+  | "network_timeout"
   | null;
 
 interface ProcessResult {
@@ -21,7 +21,7 @@ interface ProcessResult {
   userId: string;
   eventId: string;
   eventName: string;
-  status: 'success' | 'failed' | 'error';
+  status: "success" | "failed" | "error";
   failureReason: FailureReason;
   quantity: number;
   seatType: string;
@@ -40,52 +40,61 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log("Starting auto-book processing...");
+    console.log("[process-auto-books] Starting auto-book processing...");
 
     let testMode = false;
     let dryRun = false;
     let dryRunAutoBookId: string | null = null;
     let eventIdsToProcess: string[] = [];
-    
+
     try {
       const body = await req.json();
       testMode = body?.testMode === true;
       dryRun = body?.dryRun === true;
       dryRunAutoBookId = body?.autoBookId || null;
       eventIdsToProcess = body?.eventIds || [];
-      console.log(`Request params - testMode: ${testMode}, dryRun: ${dryRun}, autoBookId: ${dryRunAutoBookId}, eventIds: ${eventIdsToProcess.join(', ')}`);
+      console.log(
+        `[process-auto-books] Request params - testMode: ${testMode}, dryRun: ${dryRun}, autoBookId: ${dryRunAutoBookId}, eventIds: ${eventIdsToProcess.join(", ")}`
+      );
     } catch {
-      console.log("No request body, using defaults");
+      console.log("[process-auto-books] No request body, using defaults");
     }
 
     const now = new Date();
 
     // PHASE 2: Update event statuses based on ticket_release_time
-    const { error: statusUpdateError } = await supabase
+    console.log("[process-auto-books] Updating event statuses from coming_soon to live...");
+    const { data: updatedEvents, error: statusUpdateError } = await supabase
       .from("events")
-      .update({ status: "live" })
+      .update({ status: "live", updated_at: now.toISOString() })
       .eq("status", "coming_soon")
       .lte("ticket_release_time", now.toISOString())
-      .eq("is_active", true);
+      .eq("is_active", true)
+      .select("id, name");
 
     if (statusUpdateError) {
-      console.error("Error updating event statuses:", statusUpdateError);
+      console.error("[process-auto-books] Error updating event statuses:", statusUpdateError);
+    } else {
+      console.log(`[process-auto-books] Updated ${updatedEvents?.length || 0} events to live`);
+      if (updatedEvents && updatedEvents.length > 0) {
+        updatedEvents.forEach((e: any) => console.log(`  → ${e.name}: coming_soon → live`));
+      }
     }
 
     // Test mode: force events to live
     if (testMode && eventIdsToProcess.length > 0) {
-      console.log(`Test mode: Setting events to live`);
-      
+      console.log(`[process-auto-books] Test mode: Setting events to live`);
+
       const { error: updateEventsError } = await supabase
         .from("events")
-        .update({ 
-          status: "live", 
-          ticket_release_time: now.toISOString() 
+        .update({
+          status: "live",
+          ticket_release_time: now.toISOString(),
         })
         .in("id", eventIdsToProcess);
 
       if (updateEventsError) {
-        console.error("Error updating events for test:", updateEventsError);
+        console.error("[process-auto-books] Error updating events for test:", updateEventsError);
       }
     }
 
@@ -104,21 +113,26 @@ Deno.serve(async (req) => {
     const { data: liveEvents, error: eventsError } = await eventsQuery;
 
     if (eventsError) {
-      console.error("Error fetching live events:", eventsError);
+      console.error("[process-auto-books] Error fetching live events:", eventsError);
       throw eventsError;
     }
 
-    console.log(`Found ${liveEvents?.length || 0} live events to process`);
+    console.log(`[process-auto-books] Found ${liveEvents?.length || 0} live events to process`);
 
     if (!liveEvents || liveEvents.length === 0) {
       return new Response(
-        JSON.stringify({ message: "No live events to process", processed: 0 }),
+        JSON.stringify({
+          message: "No live events to process",
+          processed: 0,
+          eventsProcessed: 0,
+          eventsUpdatedToLive: updatedEvents?.length || 0,
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const eventIds = liveEvents.map((e) => e.id);
-    const eventMap = new Map(liveEvents.map((e) => [e.id, e]));
+    const eventIds = liveEvents.map((e: any) => e.id);
+    const eventMap = new Map(liveEvents.map((e: any) => [e.id, e]));
 
     // PHASE 3: Get active auto-books with safety checks
     const { data: activeAutoBooks, error: autoBookError } = await supabase
@@ -128,18 +142,19 @@ Deno.serve(async (req) => {
       .eq("status", "active");
 
     if (autoBookError) {
-      console.error("Error fetching auto-books:", autoBookError);
+      console.error("[process-auto-books] Error fetching auto-books:", autoBookError);
       throw autoBookError;
     }
 
-    console.log(`Found ${activeAutoBooks?.length || 0} active auto-books to process`);
+    console.log(`[process-auto-books] Found ${activeAutoBooks?.length || 0} active auto-books to process`);
 
     if (!activeAutoBooks || activeAutoBooks.length === 0) {
       return new Response(
-        JSON.stringify({ 
-          message: "No active auto-books to process", 
-          processed: 0, 
-          eventsProcessed: liveEvents.length 
+        JSON.stringify({
+          message: "No active auto-books to process",
+          processed: 0,
+          eventsProcessed: liveEvents.length,
+          eventsUpdatedToLive: updatedEvents?.length || 0,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -156,21 +171,21 @@ Deno.serve(async (req) => {
       if (!event) continue;
 
       const userEventKey = `${autoBook.user_id}-${autoBook.event_id}`;
-      
+
       // PHASE 3: Safety guard - one auto-book per user per event
       if (userEventMap.has(userEventKey)) {
-        console.log(`Duplicate auto-book detected for user ${autoBook.user_id} on event ${event.name}`);
-        
+        console.log(`[process-auto-books] Duplicate auto-book detected for user ${autoBook.user_id} on event ${event.name}`);
+
         // Cancel duplicate auto-book
         await supabase
           .from("auto_books")
-          .update({ 
-            status: "failed", 
+          .update({
+            status: "failed",
             failure_reason: "Duplicate auto-book - already processed",
-            updated_at: now.toISOString() 
+            updated_at: now.toISOString(),
           })
           .eq("id", autoBook.id);
-        
+
         continue;
       }
       userEventMap.set(userEventKey, autoBook.id);
@@ -186,7 +201,9 @@ Deno.serve(async (req) => {
       const releaseTime = new Date(event.ticket_release_time);
       const timeSinceRelease = now.getTime() - releaseTime.getTime();
 
-      console.log(`[Availability Check] Auto-book ${autoBook.id}: Price ₹${event.price}, User Budget ₹${autoBook.max_budget}, Time since release: ${Math.round(timeSinceRelease / 1000)}s`);
+      console.log(
+        `[process-auto-books] [Availability Check] Auto-book ${autoBook.id}: Price ₹${event.price}, User Budget ₹${autoBook.max_budget}, Time since release: ${Math.round(timeSinceRelease / 1000)}s`
+      );
 
       // DETERMINISTIC CHECK 1: Budget validation (no randomness)
       if (!withinBudget) {
@@ -211,7 +228,7 @@ Deno.serve(async (req) => {
 
       // DRY-RUN MODE: Store results without updating status
       if (dryRun && dryRunAutoBookId === autoBook.id) {
-        console.log(`[DRY-RUN] Simulated result for auto-book ${autoBook.id}: ${newStatus}`);
+        console.log(`[process-auto-books] [DRY-RUN] Simulated result for auto-book ${autoBook.id}: ${newStatus}`);
         const dryRunData = {
           simulatedStatus: newStatus,
           simulatedFailureReason: failureReason,
@@ -234,23 +251,23 @@ Deno.serve(async (req) => {
           .eq("id", autoBook.id);
 
         if (dryRunError) {
-          console.error(`Error storing dry-run results for ${autoBook.id}:`, dryRunError);
+          console.error(`[process-auto-books] Error storing dry-run results for ${autoBook.id}:`, dryRunError);
         }
       } else {
         // NORMAL MODE: Update status and availability check timestamp
         const { error: updateErrorLocal } = await supabase
           .from("auto_books")
-          .update({ 
-            status: newStatus, 
+          .update({
+            status: newStatus,
             failure_reason: failureReason,
-            updated_at: now.toISOString() 
+            updated_at: now.toISOString(),
           })
           .eq("id", autoBook.id);
 
         updateError = updateErrorLocal;
 
         if (updateError) {
-          console.error(`Error updating auto-book ${autoBook.id}:`, updateError);
+          console.error(`[process-auto-books] Error updating auto-book ${autoBook.id}:`, updateError);
           results.push({
             autoBookId: autoBook.id,
             userId: autoBook.user_id,
@@ -261,7 +278,7 @@ Deno.serve(async (req) => {
             quantity: autoBook.quantity,
             seatType: autoBook.seat_type,
             totalCost,
-            message: "Database update failed"
+            message: "Database update failed",
           });
           failedCount++;
           continue;
@@ -273,7 +290,7 @@ Deno.serve(async (req) => {
       } else {
         failedCount++;
       }
-      
+
       results.push({
         autoBookId: autoBook.id,
         userId: autoBook.user_id,
@@ -284,13 +301,13 @@ Deno.serve(async (req) => {
         quantity: autoBook.quantity,
         seatType: autoBook.seat_type,
         totalCost,
-        message: dryRun && dryRunAutoBookId === autoBook.id ? `[DRY-RUN] ${message}` : message
+        message: dryRun && dryRunAutoBookId === autoBook.id ? `[DRY-RUN] ${message}` : message,
       });
-      
-      console.log(`Auto-book ${autoBook.id}: ${newStatus} - ${message}`);
+
+      console.log(`[process-auto-books] Auto-book ${autoBook.id}: ${newStatus} - ${message}`);
     }
 
-    console.log(`Processing complete. Success: ${successCount}, Failed: ${failedCount}`);
+    console.log(`[process-auto-books] Processing complete. Success: ${successCount}, Failed: ${failedCount}`);
 
     return new Response(
       JSON.stringify({
@@ -298,20 +315,21 @@ Deno.serve(async (req) => {
         isDryRun: dryRun,
         processed: activeAutoBooks.length,
         eventsProcessed: liveEvents.length,
+        eventsUpdatedToLive: updatedEvents?.length || 0,
         success: successCount,
         failed: failedCount,
         results,
         processedAt: now.toISOString(),
-        note: dryRun ? "Results are simulated and not stored in the database" : undefined
+        note: dryRun ? "Results are simulated and not stored in the database" : undefined,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("Error in process-auto-books:", errorMessage);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    console.error("[process-auto-books] Error:", errorMessage);
+    return new Response(JSON.stringify({ error: errorMessage }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
