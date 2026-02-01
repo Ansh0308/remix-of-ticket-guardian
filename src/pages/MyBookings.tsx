@@ -347,7 +347,7 @@ const MyBookings: React.FC = () => {
           className="mb-6 p-4 rounded-xl bg-primary/5 border border-primary/20"
         >
           <p className="text-sm text-primary">
-            <strong>⚡ Auto-processing enabled:</strong> The system checks every 10 seconds and automatically processes 
+            <strong>⚡ Auto-processing enabled:</strong> The system checks every 30 seconds and automatically processes 
             auto-books when ticket release time arrives. You can also click "Process Now" to trigger immediately.
           </p>
         </motion.div>
