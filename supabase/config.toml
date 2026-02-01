@@ -3,5 +3,11 @@ project_id = "yteqzzzmrbqlnjdvdjtt"
 [functions.process-auto-books]
 verify_jwt = false
 
+[functions.scheduled-process-auto-books]
+verify_jwt = false
+
 [functions.scrape-events]
+verify_jwt = false
+
+[functions.clone-event-for-testing]
 verify_jwt = false
